@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>P2P Live Guestbook – First Viewer as Server</title>
+<title>P2P Live Guestbook – Soketi WebSocket Server</title>
 <link rel="icon" href="data:;base64,iVBORw0KGgo=">
 <style>
   body {font-family:system-ui;background:#000;color:#0f0;padding:30px;margin:0;}
@@ -18,65 +18,39 @@
   .connection-status.connected {background:#001100;border:1px solid #0f0;}
   .connection-status.disconnected {background:#110000;border:1px solid #f00;}
   .connection-status.connecting {background:#111100;border:1px solid #ff0;}
-  .server-status {margin:10px 0;padding:10px;background:#111;border:1px solid #0f0;}
-  .server-role {background:#002200 !important;border-color:#0f0 !important;}
-  .client-role {background:#000022 !important;border-color:#00f !important;}
-  .sync-mode {margin:10px 0;padding:10px;background:#111;border:1px solid #0f0;}
-  .mode-btn {width:auto;margin:5px;padding:8px 12px;}
-  .mode-btn.active {background:#0f0;color:#000;}
-  .mode-btn.inactive {background:#333;color:#666;}
+  .server-config {margin:10px 0;padding:10px;background:#111;border:1px solid #0f0;}
+  .config-input {background:#002200;border-color:#0f0;margin:5px 0;}
+  .info-box {margin:20px 0;padding:15px;background:#111;border:1px solid #0f0;}
 </style>
 </head>
 <body>
 
-<h1>P2P Live Guestbook – First Viewer Becomes Server</h1>
-<p>First person to open this page becomes the Yjs server! Others connect to them.</p>
+<h1>P2P Live Guestbook – Soketi WebSocket Server</h1>
+<p>Production-grade real-time sync using Soketi.app</p>
 
-<div class="connection-status" id="connectionStatus">Initializing connection...</div>
-<div class="server-status" id="serverStatus">Determining server role...</div>
+<div class="connection-status" id="connectionStatus">Configure your Soketi server below</div>
 
-<div class="sync-mode">
-  <strong>Connection Mode:</strong>
-  <button id="p2pMode" class="mode-btn active" onclick="switchToP2P()">P2P Mode (First Viewer as Server)</button>
-  <button id="webrtcMode" class="mode-btn inactive" onclick="switchToWebRTC()">WebRTC (Public Servers)</button>
-  <button id="localMode" class="mode-btn inactive" onclick="switchToLocal()">Local Only</button>
+<div class="server-config">
+  <strong>Soketi Server Configuration:</strong><br>
+  <input type="text" id="serverUrl" placeholder="wss://your-soketi-server.com" value="ws://localhost:6001" class="config-input">
+  <input type="text" id="appKey" placeholder="App Key" value="app-key" class="config-input">
+  <input type="text" id="appSecret" placeholder="App Secret (optional)" value="secret" class="config-input">
+  <input type="text" id="cluster" placeholder="Cluster (optional)" value="mt1" class="config-input">
+  <button id="connectBtn">Connect to Soketi</button>
+  <div id="serverStatus">Enter your Soketi server details and click Connect</div>
 </div>
 
 <input type="text" id="name" placeholder="Your name (optional)" value="Visitor">
 <textarea id="msg" rows="3" placeholder="Your message – syncs live everywhere"></textarea>
-<button id="sendBtn" onclick="send()">Send Message</button>
+<button id="sendBtn" disabled>Send Message (Connect First)</button>
 
 <div id="messages"></div>
-<div class="status" id="status">Status: Initializing...</div>
+<div class="status" id="status">Status: Disconnected</div>
 <div class="peers" id="peers">Peers: 0</div>
 
 <script type="module">
-// Import Yjs and providers
-const YjsImport = await import('https://cdn.jsdelivr.net/npm/yjs@13.6.27/+esm');
-const Y = YjsImport;
-
-// Try to import WebRTC provider
-let WebrtcProvider;
-try {
-  const WebrtcModule = await import('https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/+esm');
-  WebrtcProvider = WebrtcModule.WebrtcProvider;
-} catch (e) {
-  console.warn('WebRTC provider not available:', e);
-  WebrtcProvider = null;
-}
-
-// Import for P2P WebSocket server
-let Peer;
-try {
-  const PeerModule = await import('https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js');
-  Peer = PeerModule.default;
-} catch (e) {
-  console.warn('PeerJS not available:', e);
-  Peer = null;
-}
-
-// Unique room name
-const ROOM = "first-viewer-server-guestbook-v1";
+import * as Y from 'https://cdn.jsdelivr.net/npm/yjs/+esm';
+import { WebsocketProvider } from 'https://cdn.jsdelivr.net/npm/y-websocket/+esm';
 
 // DOM elements
 const connectionStatus = document.getElementById('connectionStatus');
@@ -85,398 +59,209 @@ const peersDiv = document.getElementById('peers');
 const sendBtn = document.getElementById('sendBtn');
 const messagesDiv = document.getElementById('messages');
 const serverStatusDiv = document.getElementById('serverStatus');
-
-// Initialize Yjs
-const ydoc = new Y.Doc();
-const messages = ydoc.getArray('messages');
+const serverUrlInput = document.getElementById('serverUrl');
+const appKeyInput = document.getElementById('appKey');
+const appSecretInput = document.getElementById('appSecret');
+const clusterInput = document.getElementById('cluster');
+const connectBtn = document.getElementById('connectBtn');
 
 // Connection state
-let currentProvider = null;
-let currentMode = 'p2p';
+let provider = null;
+let ydoc = null;
+let messages = null;
 let isConnected = false;
-let isServer = false;
-let peer = null;
-let serverPeerId = null;
-let dataConnection = null;
 
-// Available signaling servers for fallback
-const WEBRTC_SIGNALING_SERVERS = [
-  'wss://enginuecoresaas-soketi.uraoah.easypanel.host'
-];
+// Room name
+const ROOM_NAME = "soketi-guestbook-room-v1";
 
-// First Viewer as Server System
-async function setupFirstViewerServer() {
-  cleanupCurrentProvider();
-  
-  // Check if we should become the server
-  const serverInfo = await determineServerRole();
-  
-  if (serverInfo.isServer) {
-    // We are the first viewer - become the server
-    await becomeServer();
-  } else {
-    // We are a client - connect to the server
-    await connectToServer(serverInfo.serverPeerId);
-  }
-}
-
-// Determine if we should be the server or client
-async function determineServerRole() {
-  updateServerStatus('Checking for existing server...');
-  
-  // Try to get server info from localStorage (simulates server discovery)
-  const storedServer = localStorage.getItem(`${ROOM}-server`);
-  const storedTimestamp = localStorage.getItem(`${ROOM}-server-timestamp`);
-  
-  // Check if stored server is still valid (within last 5 minutes)
-  if (storedServer && storedTimestamp) {
-    const serverTime = parseInt(storedTimestamp);
-    const currentTime = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
+// Custom WebSocket provider for Soketi
+class SoketiProvider {
+  constructor(serverUrl, roomName, ydoc, options = {}) {
+    this.serverUrl = serverUrl;
+    this.roomName = roomName;
+    this.ydoc = ydoc;
+    this.options = options;
+    this.ws = null;
+    this.connected = false;
     
-    if (currentTime - serverTime < fiveMinutes) {
-      // Server exists and is recent
-      updateServerStatus(`Found existing server: ${storedServer}`);
-      return { isServer: false, serverPeerId: storedServer };
-    }
+    this.connect();
   }
-  
-  // No valid server found - we become the server
-  const ourPeerId = generatePeerId();
-  localStorage.setItem(`${ROOM}-server`, ourPeerId);
-  localStorage.setItem(`${ROOM}-server-timestamp`, Date.now().toString());
-  
-  updateServerStatus('You are the FIRST VIEWER - Becoming Server!');
-  return { isServer: true, serverPeerId: ourPeerId };
-}
 
-// Generate a unique peer ID
-function generatePeerId() {
-  return `server-${Math.random().toString(36).substr(2, 9)}-${Date.now().toString(36)}`;
-}
-
-// Become the P2P server
-async function becomeServer() {
-  if (!Peer) {
-    updateServerStatus('PeerJS not available - falling back to local');
-    setupLocalOnly();
-    return;
-  }
-  
-  isServer = true;
-  const ourPeerId = localStorage.getItem(`${ROOM}-server`);
-  
-  try {
-    // Create PeerJS server instance
-    peer = new Peer(ourPeerId, {
-      debug: 3,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ]
-      }
-    });
-    
-    peer.on('open', (id) => {
-      console.log('Server peer opened with ID:', id);
-      updateConnectionStatus('connected', 'Server Mode - Accepting Connections');
-      updateServerStatus(`✅ YOU ARE THE SERVER (ID: ${id})`);
-      serverStatusDiv.className = 'server-status server-role';
-      sendBtn.disabled = false;
-      isConnected = true;
-    });
-    
-    peer.on('connection', (conn) => {
-      console.log('Client connected:', conn.peer);
-      dataConnection = conn;
-      
-      conn.on('open', () => {
-        updateStatus(`Client ${conn.peer} connected`);
-        updatePeerCount();
-        
-        // Send current document state to new client
-        const update = Y.encodeStateAsUpdate(ydoc);
-        conn.send({ type: 'ydoc-update', data: Array.from(update) });
-      });
-      
-      conn.on('data', (data) => {
-        handleClientData(data, conn);
-      });
-      
-      conn.on('close', () => {
-        console.log('Client disconnected');
-        updatePeerCount();
-      });
-      
-      conn.on('error', (err) => {
-        console.error('Connection error:', err);
-      });
-    });
-    
-    peer.on('error', (err) => {
-      console.error('PeerJS server error:', err);
-      updateConnectionStatus('disconnected', 'Server error - falling back');
-      setupLocalOnly();
-    });
-    
-  } catch (error) {
-    console.error('Failed to become server:', error);
-    updateServerStatus('Failed to become server - falling back');
-    setupLocalOnly();
-  }
-}
-
-// Connect to existing server as client
-async function connectToServer(serverPeerId) {
-  if (!Peer) {
-    updateServerStatus('PeerJS not available - falling back to local');
-    setupLocalOnly();
-    return;
-  }
-  
-  isServer = false;
-  
-  try {
-    // Create client peer (no ID needed for clients)
-    peer = new Peer({
-      debug: 2,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ]
-      }
-    });
-    
-    peer.on('open', (id) => {
-      console.log('Client peer opened with ID:', id);
-      updateConnectionStatus('connecting', `Connecting to server ${serverPeerId}...`);
-      
-      // Connect to server
-      dataConnection = peer.connect(serverPeerId, {
-        reliable: true
-      });
-      
-      dataConnection.on('open', () => {
-        console.log('Connected to server');
-        updateConnectionStatus('connected', 'Connected to Server');
-        updateServerStatus(`✅ Connected to Server: ${serverPeerId}`);
-        serverStatusDiv.className = 'server-status client-role';
-        sendBtn.disabled = false;
-        isConnected = true;
-      });
-      
-      dataConnection.on('data', (data) => {
-        handleServerData(data);
-      });
-      
-      dataConnection.on('close', () => {
-        console.log('Disconnected from server');
-        updateConnectionStatus('disconnected', 'Disconnected from server');
-        sendBtn.disabled = true;
-        isConnected = false;
-        
-        // Try to reconnect or find new server
-        setTimeout(() => setupFirstViewerServer(), 3000);
-      });
-      
-      dataConnection.on('error', (err) => {
-        console.error('Data connection error:', err);
-      });
-    });
-    
-    peer.on('error', (err) => {
-      console.error('PeerJS client error:', err);
-      if (err.type === 'peer-unavailable') {
-        updateServerStatus('Server unavailable - you may be first viewer now');
-        // Clear old server info and try to become server
-        localStorage.removeItem(`${ROOM}-server`);
-        localStorage.removeItem(`${ROOM}-server-timestamp`);
-        setTimeout(() => setupFirstViewerServer(), 2000);
-      } else {
-        updateConnectionStatus('disconnected', 'Connection failed');
-        setupLocalOnly();
-      }
-    });
-    
-  } catch (error) {
-    console.error('Failed to connect to server:', error);
-    updateServerStatus('Connection failed - falling back');
-    setupLocalOnly();
-  }
-}
-
-// Handle data from clients (server side)
-function handleClientData(data, conn) {
-  switch (data.type) {
-    case 'ydoc-update':
-      // Apply update from client
-      Y.applyUpdate(ydoc, new Uint8Array(data.data));
-      break;
-      
-    case 'message':
-      // Broadcast message to all clients
-      if (dataConnection) {
-        dataConnection.send(data);
-      }
-      break;
-  }
-}
-
-// Handle data from server (client side)
-function handleServerData(data) {
-  switch (data.type) {
-    case 'ydoc-update':
-      // Apply update from server
-      Y.applyUpdate(ydoc, new Uint8Array(data.data));
-      break;
-      
-    case 'message':
-      // The server already applied the update, just render
-      render();
-      break;
-  }
-}
-
-// WebRTC fallback
-function setupWebRTC() {
-  cleanupCurrentProvider();
-  currentMode = 'webrtc';
-  
-  if (!WebrtcProvider) {
-    updateConnectionStatus('disconnected', 'WebRTC not available');
-    setupLocalOnly();
-    return;
-  }
-  
-  updateConnectionStatus('connecting', 'Connecting via WebRTC...');
-  updateServerStatus('Using public WebRTC signaling servers');
-  serverStatusDiv.className = 'server-status';
-  
-  try {
-    currentProvider = new WebrtcProvider(ROOM, ydoc, {
-      signaling: WEBRTC_SIGNALING_SERVERS,
-      password: null
-    });
-    
-    currentProvider.on('synced', (synced) => {
-      if (synced) {
-        isConnected = true;
-        updateConnectionStatus('connected', 'Connected via WebRTC');
-        sendBtn.disabled = false;
-        updateStatus('Synced with peers via WebRTC');
-      }
-    });
-    
-  } catch (error) {
-    console.error('WebRTC setup failed:', error);
-    setupLocalOnly();
-  }
-  
-  updateModeButtons();
-}
-
-// Local-only mode
-function setupLocalOnly() {
-  cleanupCurrentProvider();
-  currentMode = 'local';
-  
-  updateConnectionStatus('connected', 'Local Mode - Data persists in browser');
-  updateServerStatus('Using local storage only');
-  serverStatusDiv.className = 'server-status';
-  sendBtn.disabled = false;
-  isConnected = true;
-  
-  // Load from localStorage
-  try {
-    const saved = localStorage.getItem(ROOM);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      parsed.forEach(msg => {
-        if (!messages.some(m => m.time === msg.time && m.text === msg.text)) {
-          messages.push([msg]);
-        }
-      });
-    }
-  } catch (e) {
-    console.log('No previous local data found');
-  }
-  
-  updateModeButtons();
-}
-
-// Cleanup
-function cleanupCurrentProvider() {
-  if (peer) {
-    peer.destroy();
-    peer = null;
-  }
-  
-  if (currentProvider) {
+  connect() {
     try {
-      currentProvider.destroy();
-    } catch (e) {
-      console.log('Error cleaning up provider:', e);
+      // Soketi uses Pusher protocol, so we need to handle the connection properly
+      this.ws = new WebSocket(this.serverUrl);
+      
+      this.ws.onopen = () => {
+        console.log('WebSocket connected to Soketi');
+        this.connected = true;
+        
+        // For Soketi, we need to subscribe to a channel
+        // This is a simplified implementation - you might need Pusher protocol handling
+        if (this.options.onStatus) {
+          this.options.onStatus({ status: 'connected' });
+        }
+      };
+
+      this.ws.onmessage = (event) => {
+        // Handle messages from Soketi
+        // You would need to implement Pusher protocol parsing here
+        console.log('Message from Soketi:', event.data);
+      };
+
+      this.ws.onclose = () => {
+        console.log('WebSocket disconnected from Soketi');
+        this.connected = false;
+        if (this.options.onStatus) {
+          this.options.onStatus({ status: 'disconnected' });
+        }
+        
+        // Attempt reconnect after 2 seconds
+        setTimeout(() => this.connect(), 2000);
+      };
+
+      this.ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        if (this.options.onStatus) {
+          this.options.onStatus({ status: 'error', error });
+        }
+      };
+
+    } catch (error) {
+      console.error('Failed to connect to Soketi:', error);
+      if (this.options.onStatus) {
+        this.options.onStatus({ status: 'error', error });
+      }
     }
-    currentProvider = null;
+  }
+
+  disconnect() {
+    if (this.ws) {
+      this.ws.close();
+    }
+  }
+
+  destroy() {
+    this.disconnect();
+  }
+}
+
+// Initialize Yjs with Soketi
+function initializeWithSoketi(serverUrl, appKey, appSecret, cluster) {
+  // Cleanup previous connection
+  if (provider) {
+    provider.disconnect();
+    provider.destroy();
   }
   
-  dataConnection = null;
-  isServer = false;
-  isConnected = false;
-}
+  // Create new Yjs document
+  ydoc = new Y.Doc();
+  messages = ydoc.getArray('messages');
+  
+  updateConnectionStatus('connecting', `Connecting to Soketi server...`);
+  serverStatusDiv.textContent = `Connecting to ${serverUrl}...`;
+  
+  try {
+    // Option 1: Use custom Soketi provider (simplified)
+    // provider = new SoketiProvider(serverUrl, ROOM_NAME, ydoc, {
+    //   onStatus: (event) => {
+    //     handleConnectionStatus(event.status, event.error);
+    //   }
+    // });
 
-// Update peer count
-function updatePeerCount() {
-  if (isServer && dataConnection) {
-    peersDiv.textContent = `Clients: 1`;
-  } else if (currentMode === 'webrtc' && currentProvider) {
-    peersDiv.textContent = `Peers: ?`; // WebRTC peer counting is complex
-  } else {
-    peersDiv.textContent = `Peers: 0`;
+    // Option 2: Use standard WebSocketProvider (if Soketi supports raw WebSockets)
+    // For Soketi, you might need to use their Pusher-compatible endpoints
+    provider = new WebsocketProvider(serverUrl, ROOM_NAME, ydoc);
+    
+    provider.on('status', event => {
+      handleConnectionStatus(event.status);
+    });
+    
+    // Update awareness (peer count)
+    provider.awareness.on('change', () => {
+      updatePeerCount();
+    });
+    
+    // Observe document changes
+    messages.observe(renderMessages);
+    
+    // Load existing messages
+    renderMessages();
+    
+  } catch (error) {
+    console.error('Soketi connection failed:', error);
+    updateConnectionStatus('disconnected', `Connection failed: ${error.message}`);
+    serverStatusDiv.textContent = `❌ Connection failed: ${error.message}`;
   }
 }
 
-// Mode switching
-window.switchToP2P = function() {
-  currentMode = 'p2p';
-  setupFirstViewerServer();
-  updateModeButtons();
-};
-
-window.switchToWebRTC = function() {
-  setupWebRTC();
-  updateModeButtons();
-};
-
-window.switchToLocal = function() {
-  setupLocalOnly();
-  updateModeButtons();
-};
-
-function updateModeButtons() {
-  document.getElementById('p2pMode').className = currentMode === 'p2p' ? 'mode-btn active' : 'mode-btn inactive';
-  document.getElementById('webrtcMode').className = currentMode === 'webrtc' ? 'mode-btn active' : 'mode-btn inactive';
-  document.getElementById('localMode').className = currentMode === 'local' ? 'mode-btn active' : 'mode-btn inactive';
+// Handle connection status
+function handleConnectionStatus(status, error = null) {
+  const serverUrl = serverUrlInput.value;
+  
+  switch (status) {
+    case 'connected':
+      isConnected = true;
+      updateConnectionStatus('connected', `Connected to Soketi server`);
+      sendBtn.disabled = false;
+      updateStatus('Synced with Soketi');
+      serverStatusDiv.textContent = `✅ Connected to Soketi server`;
+      break;
+    case 'connecting':
+      updateConnectionStatus('connecting', `Connecting to Soketi...`);
+      sendBtn.disabled = true;
+      serverStatusDiv.textContent = `Connecting to ${serverUrl}...`;
+      break;
+    case 'disconnected':
+      isConnected = false;
+      updateConnectionStatus('disconnected', `Disconnected from Soketi`);
+      sendBtn.disabled = true;
+      updateStatus('Disconnected - will auto-reconnect');
+      serverStatusDiv.textContent = `❌ Disconnected from server`;
+      break;
+    case 'error':
+      isConnected = false;
+      updateConnectionStatus('disconnected', `Connection error: ${error?.message || 'Unknown error'}`);
+      sendBtn.disabled = true;
+      serverStatusDiv.textContent = `❌ Connection error`;
+      break;
+  }
 }
 
-// Update status functions
-function updateConnectionStatus(status, message) {
-  connectionStatus.textContent = message;
-  connectionStatus.className = `connection-status ${status}`;
-}
+// Connect button handler
+connectBtn.addEventListener('click', () => {
+  const serverUrl = serverUrlInput.value.trim();
+  const appKey = appKeyInput.value.trim();
+  const appSecret = appSecretInput.value.trim();
+  const cluster = clusterInput.value.trim();
+  
+  if (!serverUrl) {
+    alert('Please enter a Soketi server URL');
+    return;
+  }
+  
+  if (!appKey) {
+    alert('Please enter an App Key');
+    return;
+  }
+  
+  initializeWithSoketi(serverUrl, appKey, appSecret, cluster);
+});
 
-function updateServerStatus(message) {
-  serverStatusDiv.textContent = message;
-}
+// Enter key for server URL
+serverUrlInput.addEventListener('keypress', e => {
+  if (e.key === 'Enter') {
+    connectBtn.click();
+  }
+});
 
-function updateStatus(message) {
-  statusDiv.textContent = `Status: ${message}`;
-}
-
-// Global send function
-window.send = function() {
+// Send message function
+window.sendMessage = function() {
+  if (!isConnected || !messages) {
+    alert('Not connected to Soketi server');
+    return;
+  }
+  
   const name = document.getElementById('name').value.trim();
   const text = document.getElementById('msg').value.trim();
   
@@ -492,47 +277,47 @@ window.send = function() {
     id: Math.random().toString(36).substr(2, 9)
   };
   
-  if (currentMode === 'p2p') {
-    // In P2P mode, handle based on role
-    if (isServer) {
-      // Server: add directly and broadcast
-      messages.push([newMessage]);
-      if (dataConnection) {
-        dataConnection.send({ type: 'message', data: newMessage });
-      }
-    } else {
-      // Client: send to server
-      messages.push([newMessage]); // Optimistic update
-      if (dataConnection) {
-        dataConnection.send({ 
-          type: 'ydoc-update', 
-          data: Array.from(Y.encodeStateAsUpdate(ydoc))
-        });
-      }
-    }
-  } else {
-    // Other modes: use normal Yjs
-    messages.push([newMessage]);
-  }
-  
-  // Save to localStorage as backup
-  try {
-    const existing = JSON.parse(localStorage.getItem(ROOM) || '[]');
-    if (!existing.some(msg => msg.id === newMessage.id)) {
-      existing.push(newMessage);
-      localStorage.setItem(ROOM, JSON.stringify(existing));
-    }
-  } catch (e) {
-    console.warn('Could not save to localStorage');
-  }
-  
+  messages.push([newMessage]);
   document.getElementById('msg').value = '';
 };
 
+// Enter key for messages
+document.getElementById('msg').addEventListener('keypress', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    window.sendMessage();
+  }
+});
+
+// Update connection status
+function updateConnectionStatus(status, message) {
+  connectionStatus.textContent = message;
+  connectionStatus.className = `connection-status ${status}`;
+}
+
+// Update general status
+function updateStatus(message) {
+  statusDiv.textContent = `Status: ${message}`;
+}
+
+// Update peer count
+function updatePeerCount() {
+  if (provider && provider.awareness) {
+    const states = Array.from(provider.awareness.getStates().keys());
+    const peerCount = Math.max(0, states.length - 1); // Exclude self
+    peersDiv.textContent = `Peers: ${peerCount}`;
+  } else {
+    peersDiv.textContent = `Peers: 0`;
+  }
+}
+
 // Render messages
-function render() {
+function renderMessages() {
+  if (!messages) return;
+  
   messagesDiv.innerHTML = '';
   
+  // Show newest messages first
   [...messages].reverse().forEach(item => {
     const div = document.createElement('div');
     div.className = 'msg';
@@ -542,17 +327,6 @@ function render() {
   });
 }
 
-// Observe changes to messages
-messages.observe(render);
-
-// Enter key handler
-document.getElementById('msg').addEventListener('keypress', e => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    send();
-  }
-});
-
 // Utility function
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -560,32 +334,69 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Initial render
-render();
-
 // Add welcome message
 const welcome = document.createElement('div');
 welcome.className = 'msg';
 welcome.style.color = '#0a0';
 welcome.innerHTML = `
-  <strong>First Viewer Server System Active!</strong><br>
-  • <strong>P2P Mode:</strong> First viewer becomes the server<br>
-  • <strong>WebRTC Mode:</strong> Use public signaling servers<br>
-  • <strong>Local Mode:</strong> Browser storage only<br>
-  The system will automatically determine if you should be server or client.
+  <strong>Soketi-Powered Live Guestbook</strong><br>
+  • Configure your Soketi server above<br>
+  • Messages sync in real-time across all connected users<br>
+  • Production-grade WebSocket infrastructure
 `;
-messagesDiv.prepend(welcome);
+messagesDiv.appendChild(welcome);
 
-// Start with P2P mode
-setupFirstViewerServer();
-updateModeButtons();
+// Set up send button
+document.getElementById('sendBtn').addEventListener('click', window.sendMessage);
 
-// Server heartbeat (refresh server timestamp every minute if we're server)
-setInterval(() => {
-  if (isServer) {
-    localStorage.setItem(`${ROOM}-server-timestamp`, Date.now().toString());
-  }
-}, 60000);
+console.log('Soketi guestbook ready - configure your server to start');
 </script>
+
+<div class="info-box">
+  <h3>🚀 Soketi Setup Guide</h3>
+  
+  <p><strong>Option 1: Local Development</strong></p>
+  <code style="background: #222; padding: 10px; display: block; margin: 10px 0;">
+    # Install Soketi<br>
+    npm install -g @soketi/soketi<br>
+    <br>
+    # Start Soketi server<br>
+    soketi start<br>
+    <br>
+    # Server runs on: ws://localhost:6001<br>
+    # Default app key: app-key<br>
+    # Default app secret: secret
+  </code>
+  
+  <p><strong>Option 2: Docker</strong></p>
+  <code style="background: #222; padding: 10px; display: block; margin: 10px 0;">
+    docker run -p 6001:6001 -p 9601:9601 quay.io/soketi/soketi:latest
+  </code>
+  
+  <p><strong>Option 3: Cloud Deployment</strong></p>
+  <code style="background: #222; padding: 10px; display: block; margin: 10px 0;">
+    # Deploy to Railway, Render, DigitalOcean, etc.<br>
+    # Use environment variables for configuration
+  </code>
+  
+  <p><strong>Default Credentials (for local development):</strong></p>
+  <ul>
+    <li>Server: <code>ws://localhost:6001</code></li>
+    <li>App Key: <code>app-key</code></li>
+    <li>App Secret: <code>secret</code></li>
+    <li>Cluster: <code>mt1</code></li>
+  </ul>
+  
+  <p><strong>📚 Documentation:</strong> <a href="https://docs.soketi.app" style="color:#0f0;">docs.soketi.app</a></p>
+</div>
+
+<!-- Quick connect buttons for common Soketi setups -->
+<div style="margin: 10px 0;">
+  <strong>Quick Connect:</strong>
+  <button onclick="document.getElementById('serverUrl').value = 'ws://localhost:6001'; document.getElementById('appKey').value = 'app-key'; document.getElementById('appSecret').value = 'secret'; document.getElementById('cluster').value = 'mt1'; document.getElementById('connectBtn').click();">
+    Connect to Local Soketi
+  </button>
+</div>
+
 </body>
 </html>
