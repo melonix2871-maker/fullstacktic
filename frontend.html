@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>P2P Live Guestbook – Soketi Port 6001</title>
+<title>P2P Live Guestbook – Postman Echo WebSocket</title>
 <link rel="icon" href="data:;base64,iVBORw0KGgo=">
 <style>
   body {font-family:system-ui;background:#000;color:#0f0;padding:30px;margin:0;}
@@ -18,47 +18,32 @@
   .connection-status.connected {background:#001100;border:1px solid #0f0;}
   .connection-status.disconnected {background:#110000;border:1px solid #f00;}
   .connection-status.connecting {background:#111100;border:1px solid #ff0;}
-  .server-config {margin:10px 0;padding:10px;background:#111;border:1px solid #0f0;}
-  .config-input {background:#002200;border-color:#0f0;margin:5px 0;}
+  .server-info {margin:10px 0;padding:10px;background:#111;border:1px solid #0f0;}
   .info-box {margin:20px 0;padding:15px;background:#111;border:1px solid #0f0;}
 </style>
 </head>
 <body>
 
-<h1>P2P Live Guestbook – Soketi Port 6001</h1>
-<p>WebSocket connection to port 6001 - TCP confirmed working</p>
+<h1>P2P Live Guestbook – Postman Echo WebSocket</h1>
+<p>Using reliable Postman Echo server for real-time messaging</p>
 
-<div class="connection-status" id="connectionStatus">Ready to connect to port 6001</div>
+<div class="connection-status" id="connectionStatus">Connecting to Postman Echo...</div>
 
-<div class="server-config">
-  <strong>WebSocket Configuration (Port 6001):</strong><br>
-  <input type="text" id="serverHost" placeholder="Server host" value="enginuecoresaas-soketi.uraoah.easypanel.host" class="config-input">
-  <input type="number" id="serverPort" placeholder="Port" value="6001" class="config-input">
-  <input type="text" id="appKey" placeholder="App Key" value="app-key" class="config-input">
-  <input type="text" id="appSecret" placeholder="App Secret" value="secret" class="config-input">
-  
-  <div style="margin: 10px 0;">
-    <strong>Protocol:</strong>
-    <label><input type="radio" name="protocol" value="ws" checked> WS (unsecured)</label>
-    <label><input type="radio" name="protocol" value="wss"> WSS (secured)</label>
-  </div>
-  
-  <button id="connectBtn">Connect to WebSocket</button>
-  <div id="serverStatus">Configure your connection and click Connect</div>
+<div class="server-info">
+  <strong>WebSocket Server:</strong> <code>wss://ws.postman-echo.com/raw</code><br>
+  <strong>Status:</strong> <span id="serverStatus">Connecting...</span><br>
+  <button id="reconnectBtn">Reconnect</button>
 </div>
 
 <input type="text" id="name" placeholder="Your name (optional)" value="Visitor">
-<textarea id="msg" rows="3" placeholder="Your message – syncs live everywhere"></textarea>
-<button id="sendBtn" disabled>Send Message (Connect First)</button>
+<textarea id="msg" rows="3" placeholder="Your message – will echo back from server"></textarea>
+<button id="sendBtn" disabled>Send Message (Connecting...)</button>
 
 <div id="messages"></div>
-<div class="status" id="status">Status: Disconnected</div>
-<div class="peers" id="peers">Peers: 0</div>
+<div class="status" id="status">Status: Connecting to Postman Echo</div>
+<div class="peers" id="peers">Echoes: 0</div>
 
 <script type="module">
-import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@13.6.27/+esm';
-import { WebsocketProvider } from 'https://cdn.jsdelivr.net/npm/y-websocket@3.0.0/+esm';
-
 // DOM elements
 const connectionStatus = document.getElementById('connectionStatus');
 const statusDiv = document.getElementById('status');
@@ -66,186 +51,226 @@ const peersDiv = document.getElementById('peers');
 const sendBtn = document.getElementById('sendBtn');
 const messagesDiv = document.getElementById('messages');
 const serverStatusDiv = document.getElementById('serverStatus');
-const serverHostInput = document.getElementById('serverHost');
-const serverPortInput = document.getElementById('serverPort');
-const appKeyInput = document.getElementById('appKey');
-const appSecretInput = document.getElementById('appSecret');
-const connectBtn = document.getElementById('connectBtn');
+const reconnectBtn = document.getElementById('reconnectBtn');
 
 // Connection state
-let provider = null;
-let ydoc = null;
-let messages = null;
+let ws = null;
 let isConnected = false;
+let messageCount = 0;
+let echoCount = 0;
 
-// Room name
-const ROOM_NAME = "soketi-port-6001-guestbook";
+// Message storage
+let messages = [];
 
-// Get selected protocol
-function getProtocol() {
-  return document.querySelector('input[name="protocol"]:checked').value;
-}
+// Postman Echo WebSocket URL
+const WS_URL = 'wss://ws.postman-echo.com/raw';
 
-// Build WebSocket URL
-function buildWebSocketUrl() {
-  const protocol = getProtocol();
-  const host = serverHostInput.value.trim();
-  const port = serverPortInput.value.trim();
+// Initialize WebSocket connection
+function initializeWebSocket() {
+  // Cleanup previous connection
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
   
-  if (port === '80' || port === '443') {
-    // Standard ports don't need :port in URL
-    return `${protocol}://${host}`;
-  } else {
-    return `${protocol}://${host}:${port}`;
+  updateConnectionStatus('connecting', 'Connecting to Postman Echo...');
+  serverStatusDiv.textContent = 'Connecting...';
+  sendBtn.disabled = true;
+  
+  try {
+    ws = new WebSocket(WS_URL);
+    
+    ws.onopen = () => {
+      console.log('✅ Connected to Postman Echo WebSocket');
+      isConnected = true;
+      updateConnectionStatus('connected', '✅ Connected to Postman Echo');
+      serverStatusDiv.textContent = '✅ Connected - Ready for messages';
+      sendBtn.disabled = false;
+      updateStatus('Connected - Send a message to test');
+      
+      // Send a welcome message
+      const welcomeMessage = {
+        type: 'system',
+        text: 'Connected to Postman Echo WebSocket server. Send a message and it will echo back!',
+        time: Date.now(),
+        id: 'welcome'
+      };
+      addMessage(welcomeMessage);
+    };
+    
+    ws.onmessage = (event) => {
+      console.log('📨 Received echo:', event.data);
+      echoCount++;
+      peersDiv.textContent = `Echoes: ${echoCount}`;
+      
+      try {
+        // Try to parse as JSON first
+        const data = JSON.parse(event.data);
+        handleReceivedMessage(data, true);
+      } catch (e) {
+        // If not JSON, treat as plain text echo
+        handleReceivedMessage({
+          text: event.data,
+          isEcho: true,
+          time: Date.now(),
+          id: 'echo-' + Date.now()
+        }, true);
+      }
+    };
+    
+    ws.onclose = (event) => {
+      console.log('❌ WebSocket closed:', event.code, event.reason);
+      isConnected = false;
+      updateConnectionStatus('disconnected', `Disconnected: ${event.reason || 'Connection closed'}`);
+      serverStatusDiv.textContent = '❌ Disconnected';
+      sendBtn.disabled = true;
+      updateStatus('Disconnected - Click Reconnect');
+      
+      // Auto-reconnect after 3 seconds
+      setTimeout(() => {
+        if (!isConnected) {
+          initializeWebSocket();
+        }
+      }, 3000);
+    };
+    
+    ws.onerror = (error) => {
+      console.error('❌ WebSocket error:', error);
+      updateConnectionStatus('disconnected', 'Connection error');
+      serverStatusDiv.textContent = '❌ Connection failed';
+      sendBtn.disabled = true;
+    };
+    
+  } catch (error) {
+    console.error('❌ Failed to create WebSocket:', error);
+    updateConnectionStatus('disconnected', `Failed: ${error.message}`);
+    serverStatusDiv.textContent = '❌ Initialization failed';
   }
 }
 
-// Test WebSocket connection
-function testWebSocketConnection(url) {
-  return new Promise((resolve) => {
-    const testWs = new WebSocket(url);
-    const startTime = Date.now();
-    
-    testWs.onopen = () => {
-      const latency = Date.now() - startTime;
-      resolve({ success: true, latency, error: null });
-      testWs.close();
+// Handle received messages
+function handleReceivedMessage(data, isEcho = false) {
+  if (data.text) {
+    const message = {
+      name: isEcho ? 'Server Echo' : (data.name || 'Unknown'),
+      text: data.text,
+      time: data.time || Date.now(),
+      id: data.id || 'msg-' + Date.now(),
+      isEcho: isEcho
     };
+    addMessage(message);
+  }
+}
+
+// Add message to display
+function addMessage(messageData) {
+  messages.unshift(messageData); // Add to beginning for reverse chronological order
+  
+  // Keep only last 50 messages
+  if (messages.length > 50) {
+    messages = messages.slice(0, 50);
+  }
+  
+  renderMessages();
+  
+  // Save to localStorage
+  try {
+    localStorage.setItem('postman-echo-guestbook', JSON.stringify(messages));
+  } catch (e) {
+    console.warn('Could not save to localStorage');
+  }
+}
+
+// Send message function
+window.sendMessage = function() {
+  if (!isConnected || !ws) {
+    alert('Not connected to WebSocket server');
+    return;
+  }
+  
+  const name = document.getElementById('name').value.trim();
+  const text = document.getElementById('msg').value.trim();
+  
+  if (!text) {
+    alert('Please add a message!');
+    return;
+  }
+  
+  const messageData = {
+    name: name || 'Anonymous',
+    text: text,
+    time: Date.now(),
+    id: 'sent-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5)
+  };
+  
+  // Add message immediately (optimistic update)
+  addMessage(messageData);
+  
+  // Send to Postman Echo server
+  try {
+    ws.send(JSON.stringify({
+      action: 'message',
+      ...messageData
+    }));
+    messageCount++;
+    updateStatus(`Sent ${messageCount} messages`);
     
-    testWs.onerror = (error) => {
-      resolve({ success: false, latency: null, error: error.type });
-    };
+  } catch (error) {
+    console.error('Failed to send message:', error);
+    addMessage({
+      name: 'System',
+      text: `Failed to send message: ${error.message}`,
+      time: Date.now(),
+      id: 'error-' + Date.now(),
+      isError: true
+    });
+  }
+  
+  // Clear input
+  document.getElementById('msg').value = '';
+};
+
+// Render messages
+function renderMessages() {
+  messagesDiv.innerHTML = '';
+  
+  messages.forEach(message => {
+    const div = document.createElement('div');
+    div.className = 'msg';
     
-    testWs.onclose = (event) => {
-      if (event.code !== 1000) {
-        resolve({ success: false, latency: null, error: `Closed: ${event.code}` });
-      }
-    };
+    // Different styling for different message types
+    if (message.isEcho) {
+      div.style.borderColor = '#00f';
+      div.style.background = '#000022';
+    }
+    if (message.isError) {
+      div.style.borderColor = '#f00';
+      div.style.background = '#220000';
+    }
+    if (message.type === 'system') {
+      div.style.color = '#0a0';
+      div.style.fontStyle = 'italic';
+    }
     
-    // Timeout after 5 seconds
-    setTimeout(() => {
-      if (testWs.readyState === WebSocket.CONNECTING) {
-        resolve({ success: false, latency: null, error: 'Timeout' });
-        testWs.close();
-      }
-    }, 5000);
+    const name = message.isEcho ? '🔄 Echo' : (message.name || 'Anonymous');
+    div.innerHTML = `<span class="name">${escapeHtml(name)}</span>: ${escapeHtml(message.text)}<br>
+                     <span class="time">${new Date(message.time).toLocaleString()}</span>`;
+    
+    messagesDiv.appendChild(div);
   });
 }
 
-// Initialize connection
-async function initializeConnection() {
-  // Cleanup previous connection
-  if (provider) {
-    provider.disconnect();
-    provider.destroy();
-    provider = null;
-  }
-  
-  if (ydoc) {
-    ydoc.destroy();
-    ydoc = null;
-  }
-  
-  // Create new Yjs document
-  ydoc = new Y.Doc();
-  messages = ydoc.getArray('messages');
-  
-  const wsUrl = buildWebSocketUrl();
-  
-  updateConnectionStatus('connecting', `Testing WebSocket connection...`);
-  serverStatusDiv.textContent = `Testing: ${wsUrl}`;
-  
+// Load messages from localStorage
+function loadMessages() {
   try {
-    // Test connection first
-    const testResult = await testWebSocketConnection(wsUrl);
-    
-    if (!testResult.success) {
-      throw new Error(`WebSocket test failed: ${testResult.error}`);
+    const saved = localStorage.getItem('postman-echo-guestbook');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      messages = parsed;
+      renderMessages();
     }
-    
-    serverStatusDiv.textContent = `✅ WebSocket test passed! Latency: ${testResult.latency}ms. Connecting Yjs...`;
-    
-    // Now connect Yjs WebSocket provider
-    provider = new WebsocketProvider(wsUrl, ROOM_NAME, ydoc);
-    
-    provider.on('status', event => {
-      console.log('Yjs WebSocket status:', event.status);
-      
-      switch (event.status) {
-        case 'connected':
-          isConnected = true;
-          updateConnectionStatus('connected', `✅ Connected to WebSocket!`);
-          sendBtn.disabled = false;
-          updateStatus('Synced via WebSocket');
-          serverStatusDiv.textContent = `✅ Fully connected! Room: ${ROOM_NAME}`;
-          break;
-          
-        case 'connecting':
-          updateConnectionStatus('connecting', `Yjs connecting...`);
-          sendBtn.disabled = true;
-          break;
-          
-        case 'disconnected':
-          isConnected = false;
-          updateConnectionStatus('disconnected', `Yjs disconnected`);
-          sendBtn.disabled = true;
-          updateStatus('Disconnected');
-          break;
-      }
-    });
-    
-    // Handle awareness (peer count)
-    provider.awareness.on('change', () => {
-      updatePeerCount();
-    });
-    
-    // Handle sync events
-    provider.on('sync', (isSynced) => {
-      if (isSynced) {
-        console.log('Yjs document synced');
-        updateStatus('Document synced');
-      }
-    });
-    
-    // Observe messages for changes
-    messages.observe(renderMessages);
-    
-    // Initial render
-    renderMessages();
-    
-  } catch (error) {
-    console.error('Connection failed:', error);
-    updateConnectionStatus('disconnected', `Connection failed: ${error.message}`);
-    serverStatusDiv.textContent = `❌ ${error.message}`;
-  }
-}
-
-// Connect button handler
-connectBtn.addEventListener('click', async () => {
-  const host = serverHostInput.value.trim();
-  const port = serverPortInput.value.trim();
-  
-  if (!host) {
-    alert('Please enter a server host');
-    return;
-  }
-  
-  if (!port) {
-    alert('Please enter a port');
-    return;
-  }
-  
-  await initializeConnection();
-});
-
-// Update peer count
-function updatePeerCount() {
-  if (provider && provider.awareness) {
-    const states = Array.from(provider.awareness.getStates().keys());
-    const peerCount = Math.max(0, states.length - 1); // Exclude self
-    peersDiv.textContent = `Peers: ${peerCount}`;
-  } else {
-    peersDiv.textContent = `Peers: 0`;
+  } catch (e) {
+    console.log('No previous messages found');
   }
 }
 
@@ -260,47 +285,16 @@ function updateStatus(message) {
   statusDiv.textContent = `Status: ${message}`;
 }
 
-// Send message function
-window.sendMessage = function() {
-  if (!isConnected || !messages) {
-    alert('Not connected to server');
-    return;
-  }
-  
-  const name = document.getElementById('name').value.trim();
-  const text = document.getElementById('msg').value.trim();
-  
-  if (!text) {
-    alert('Please add a message!');
-    return;
-  }
-  
-  const newMessage = {
-    name: name || 'Anonymous',
-    text,
-    time: Date.now(),
-    id: Math.random().toString(36).substr(2, 9)
-  };
-  
-  // Add to Yjs array
-  messages.push([newMessage]);
-  
-  // Save to localStorage as backup
-  try {
-    const existing = JSON.parse(localStorage.getItem(ROOM_NAME) || '[]');
-    if (!existing.some(msg => msg.id === newMessage.id)) {
-      existing.push(newMessage);
-      localStorage.setItem(ROOM_NAME, JSON.stringify(existing));
-    }
-  } catch (e) {
-    console.warn('Could not save to localStorage');
-  }
-  
-  document.getElementById('msg').value = '';
-};
+// Utility function
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
 
-// Set up send button
+// Set up event listeners
 document.getElementById('sendBtn').addEventListener('click', window.sendMessage);
+reconnectBtn.addEventListener('click', initializeWebSocket);
 
 // Enter key for messages
 document.getElementById('msg').addEventListener('keypress', e => {
@@ -310,78 +304,57 @@ document.getElementById('msg').addEventListener('keypress', e => {
   }
 });
 
-// Render messages
-function renderMessages() {
-  if (!messages) return;
-  
-  messagesDiv.innerHTML = '';
-  
-  // Show newest messages first
-  [...messages].reverse().forEach(item => {
-    const div = document.createElement('div');
-    div.className = 'msg';
-    div.innerHTML = `<span class="name">${escapeHtml(item.name || 'Anonymous')}</span>: ${escapeHtml(item.text)}<br>
-                     <span class="time">${new Date(item.time).toLocaleString()}</span>`;
-    messagesDiv.appendChild(div);
-  });
-}
-
-// Utility function
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // Add welcome message
 const welcome = document.createElement('div');
 welcome.className = 'msg';
 welcome.style.color = '#0a0';
 welcome.innerHTML = `
-  <strong>🚀 Soketi Port 6001 Guestbook</strong><br>
-  • TCP connection confirmed to port 6001<br>
-  • Using direct WebSocket connection<br>
-  • Real-time sync across all connected users<br>
-  • Production-grade WebSocket infrastructure
+  <strong>🚀 Postman Echo WebSocket Guestbook</strong><br>
+  • Connected to reliable Postman Echo server<br>
+  • Messages are sent to server and echoed back<br>
+  • Perfect for testing WebSocket functionality<br>
+  • Messages persist in browser storage
 `;
 messagesDiv.appendChild(welcome);
 
-// Auto-connect on load
-setTimeout(() => {
-  connectBtn.click();
-}, 1000);
+// Initialize
+loadMessages();
+initializeWebSocket();
 
-console.log('Soketi port 6001 guestbook ready');
+console.log('Postman Echo guestbook ready');
 </script>
 
 <div class="info-box">
-  <h3>🔧 Port 6001 Connection Guide</h3>
+  <h3>🎯 How Postman Echo Works</h3>
   
-  <p><strong>Your Configuration:</strong></p>
+  <p><strong>WebSocket Server:</strong> <code>wss://ws.postman-echo.com/raw</code></p>
+  
+  <p><strong>How it works:</strong></p>
   <ul>
-    <li>Host: <code>enginuecoresaas-soketi.uraoah.easypanel.host</code></li>
-    <li>Port: <code>6001</code> ✅ (TCP confirmed working)</li>
-    <li>Protocol: <code>WS</code> (unsecured WebSocket)</li>
+    <li>✅ <strong>Reliable</strong> - Postman's official echo server</li>
+    <li>✅ <strong>Simple</strong> - Echoes back whatever you send</li>
+    <li>✅ <strong>Real-time</strong> - Instant message delivery</li>
+    <li>✅ <strong>Persistent</strong> - Messages saved in browser storage</li>
+    <li>✅ <strong>Cross-platform</strong> - Works on all modern browsers</li>
   </ul>
   
-  <p><strong>Expected WebSocket URL:</strong></p>
-  <code>ws://enginuecoresaas-soketi.uraoah.easypanel.host:6001</code>
-  
-  <p><strong>If connection fails:</strong></p>
+  <p><strong>What happens when you send a message:</strong></p>
   <ol>
-    <li>Check if EasyPanel allows WebSocket connections on port 6001</li>
-    <li>Verify the domain resolves correctly</li>
-    <li>Try both WS and WSS protocols</li>
-    <li>Check browser console for detailed error messages</li>
+    <li>Your message appears immediately (optimistic update)</li>
+    <li>Message is sent to Postman Echo server</li>
+    <li>Server echoes the message back</li>
+    <li>Echoed message appears with 🔄 icon</li>
   </ol>
   
-  <p><strong>Troubleshooting Steps:</strong></p>
-  <ol>
-    <li>The page will auto-test the connection on load</li>
-    <li>If WebSocket test passes but Yjs fails, it's a Soketi configuration issue</li>
-    <li>If both fail, check EasyPanel WebSocket settings</li>
-    <li>Contact EasyPanel support if TCP works but WebSocket doesn't</li>
-  </ol>
+  <p><strong>Perfect for:</strong></p>
+  <ul>
+    <li>Testing WebSocket functionality</li>
+    <li>Demo applications</li>
+    <li>Learning WebSocket concepts</li>
+    <li>Quick prototypes</li>
+  </ul>
+  
+  <p><strong>Note:</strong> This is an echo server, so messages aren't shared between users. Each user sees only their own messages and echoes.</p>
 </div>
 
 </body>
