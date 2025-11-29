@@ -1,65 +1,83 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Live Shared Guestbook</title>
-  <style>
-    body{font-family:system-ui;background:#000;color:#0f0;padding:20px;}
-    input,textarea,button{width:100%;padding:12px;margin:8px 0;background:#111;color:#0f0;border:2px solid #0f0;font-size:16px;box-sizing:border-box;}
-    button{background:#0f0;color:#000;font-weight:bold;cursor:pointer;}
-    table{width:100%;border-collapse:collapse;margin-top:20px;}
-    th,td{border:2px solid #0f0;padding:10px;text-align:left;}
-    th{background:#0a0;color:#000;}
-  </style>
+<meta charset="utf-8">
+<title>Live Shared Guestbook</title>
+<style>
+  body {font-family:system-ui;background:#000;color:#0f0;padding:20px;}
+  input,textarea,button {width:100%;padding:12px;margin:8px 0;background:#111;color:#0f0;border:2px solid #0f0;font-size:16px;box-sizing:border-box;}
+  button {background:#0f0;color:#000;font-weight:bold;cursor:pointer;}
+  table {width:100%;border-collapse:collapse;margin-top:20px;}
+  th,td {border:2px solid #0f0;padding:10px;text-align:left;}
+  th {background:#0a0;color:#000;}
+</style>
 </head>
 <body>
   <h1>Live Shared Guestbook</h1>
-  <p>All users see the same messages instantly. Data lives forever.</p>
+  <p>All users see the same messages. Add one → it displays instantly here!</p>
 
   <input type="text" id="name" placeholder="Your name">
   <textarea id="msg" rows="3" placeholder="Your message"></textarea>
-  <button onclick="add()">Send Message</button>
+  <button onclick="addMessage()">Send Message</button>
 
-  <h2>Messages</h2>
-  <div id="list">Loading…</div>
+  <h2>Messages (updates when you add)</h2>
+  <table id="messagesTable">
+    <tr><th>Name</th><th>Message</th><th>Time</th></tr>
+  </table>
 
   <script>
-  const DB_URL = "database.json?" + Date.now(); // bust cache
+  const DB_URL = "database.json?" + Date.now(); // Bust cache
 
-  async function load() {
-    const res = await fetch(DB_URL);
-    const data = await res.json();
-    let html = "<table><tr><th>Name</th><th>Message</th><th>Time</th></tr>";
-    data.messages.reverse().forEach(m => {
-      html += `<tr><td>${m.name}</td><td>${m.message}</td><td>${m.time}</td></tr>`;
-    });
-    html += "</table>";
-    document.getElementById("list").innerHTML = html;
+  async function loadMessages() {
+    try {
+      const res = await fetch(DB_URL);
+      const data = await res.json();
+      const table = document.getElementById("messagesTable");
+      // Clear old rows (keep header)
+      while (table.rows.length > 1) table.deleteRow(1);
+      data.messages.forEach(m => {
+        const row = table.insertRow();
+        row.insertCell().innerText = m.name;
+        row.insertCell().innerText = m.message;
+        row.insertCell().innerText = m.time;
+      });
+    } catch (e) {
+      alert("Load failed: " + e.message);
+    }
   }
 
-  async function add() {
-    const name = document.getElementById("name").value || "Anonymous";
-    const message = document.getElementById("msg").value;
-    if (!message) return alert("Write something!");
+  async function addMessage() {
+    const name = document.getElementById("name").value.trim() || "Anonymous";
+    const message = document.getElementById("msg").value.trim();
+    if (!message) return alert("Write a message!");
 
-    const res = await fetch(DB_URL);
-    const data = await res.json();
-    data.messages.push({
-      name, message,
-      time: new Date().toLocaleString()
-    });
+    try {
+      const res = await fetch(DB_URL);
+      const data = await res.json();
+      data.messages.push({
+        name,
+        message,
+        time: new Date().toLocaleString()
+      });
 
-    // This trick works on GitHub Pages / Netlify: we can't write files,
-    // but we can let backend.html do the saving when someone visits it
-    localStorage.setItem("pending_save", JSON.stringify(data));
+      // Prompt to download updated database.json
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'database.json';
+      a.click();
+      alert("Message added! Download and upload the new database.json to share with everyone.");
 
-    document.getElementById("msg").value = "";
-    load();
-    alert("Message saved! It will appear for everyone when someone opens backend.html");
+      document.getElementById("msg").value = "";
+      loadMessages(); // Display instantly in this tab
+    } catch (e) {
+      alert("Add failed: " + e.message);
+    }
   }
 
-  setInterval(load, 10000);
-  load();
+  // Initial load
+  loadMessages();
   </script>
 </body>
 </html>
