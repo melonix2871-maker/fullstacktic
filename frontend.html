@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>P2P Live Guestbook – Global Sync, Forever Persistent (Fixed 2025)</title>
+<title>P2P Live Guestbook – Global Sync, Forever Persistent (Working ESM, 2025)</title>
 <link rel="icon" href="data:;base64,iVBORw0KGgo="> <!-- Fixes favicon 404 -->
 <style>
   body {font-family:system-ui;background:#000;color:#0f0;padding:30px;margin:0;}
@@ -26,22 +26,21 @@
 <div id="messages"></div>
 <div class="peers" id="peers">Peers: Loading...</div>
 
-<!-- FIXED: Yjs UMD loads (no ESM issues) -->
-<script src="https://cdn.jsdelivr.net/npm/yjs/dist/yjs.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/y-websockets-client@8.0.16/dist/y-websockets-client.js"></script>
+<!-- FIXED: ESM with jsDelivr +esm (stable imports) -->
+<script type="module">
+import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@13.6.18/+esm';
+import { WebsocketProvider } from 'https://cdn.jsdelivr.net/npm/y-websocket@3.0.0/+esm';
 
-<script>
-// FIXED: Reliable websocket server (active 2025, per docs/forums)
-const ROOM = "global-guestbook-2025-v4";
-const WS_SERVER = "ws://demos.yjs.dev:1234";  // Confirmed reliable public server
+// Unique room name (change for your own guestbook)
+const ROOM = "global-guestbook-2025-v5";
 
-const ydoc = new yjs.Doc();
+const ydoc = new Y.Doc();
 const messages = ydoc.getArray('messages');
 
-// FIXED: Provider with error fallback (local sync if fails)
+// FIXED: Provider with fallback (local sync if fails)
 let provider;
 try {
-  provider = new yjs.WebsocketProvider(WS_SERVER, ROOM, ydoc);
+  provider = new WebsocketProvider('wss://demos.yjs.dev', ROOM, ydoc);
   console.log('Connected to global sync server');
 } catch (e) {
   console.warn('Sync server fallback to local:', e);
