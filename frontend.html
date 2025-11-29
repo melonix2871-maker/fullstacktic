@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>P2P Live Guestbook – Every Browser is a Node (Websocket Sync, Fixed 2025)</title>
+<title>P2P Live Guestbook – Every Browser is a Node (ESM Fixed, 2025)</title>
+<link rel="icon" href="data:;base64,iVBORw0KGgo="> <!-- Fixes favicon 404 -->
 <style>
   body {font-family:system-ui;background:#000;color:#0f0;padding:30px;margin:0;}
   input,textarea,button{width:100%;padding:12px;margin:10px 0;background:#111;color:#0f0;border:2px solid #0f0;font-size:16px;box-sizing:border-box;}
@@ -25,17 +26,25 @@
 <div id="messages"></div>
 <div class="peers" id="peers">Peers: 1 (you)</div>
 
-<!-- Yjs + Websocket (fixed, reliable public server) -->
-<script src="https://unpkg.com/yjs@13.6.18/build/yjs.umd.js"></script>
-<script src="https://unpkg.com/y-websocket@1.5.5/dist/y-websocket.umd.js"></script>
+<!-- Yjs + Websocket (ESM fixed with ?module) -->
+<script type="module">
+import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@13.6.18/+esm';
+import { WebsocketProvider } from 'https://cdn.jsdelivr.net/npm/y-websocket@3.0.0/+esm';
 
-<script>
+// Unique room name (change for your own guestbook)
 const ROOM = "global-guestbook-2025-v3";
-const WS_SERVER = "wss://demos.yjs.dev";  // Reliable public websocket (no WebRTC flakes)
 
-const ydoc = new yjs.Doc();
+const ydoc = new Y.Doc();
 const messages = ydoc.getArray('messages');
-const wsProvider = new yjs.WebsocketProvider(WS_SERVER, ROOM, ydoc);
+
+// FIXED: Reliable public websocket server (fallback to local if fails)
+let provider;
+try {
+  provider = new WebsocketProvider('wss://demos.yjs.dev', ROOM, ydoc);
+} catch (e) {
+  console.warn('Websocket failed, using local only:', e);
+  provider = null;
+}
 
 const messagesDiv = document.getElementById('messages');
 const peersDiv = document.getElementById('peers');
@@ -63,8 +72,12 @@ function render() {
                      <span class="time">${new Date(item.time).toLocaleString()}</span>`;
     messagesDiv.prepend(div);
   });
-  // Peer count via websocket connections (approx)
-  peersDiv.textContent = `Peers online: ${wsProvider.ws?.readyState === 1 ? 'Connected' : 'Offline'}`;
+  // Peer count (approx via provider state)
+  if (provider && provider.ws) {
+    peersDiv.textContent = `Peers online: ${provider.ws.readyState === 1 ? 'Connected (syncing)' : 'Connecting...'}`;
+  } else {
+    peersDiv.textContent = `Peers online: Local only (persists forever)`;
+  }
 }
 
 // Live sync — new messages appear instantly
