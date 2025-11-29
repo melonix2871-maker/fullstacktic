@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>P2P Live Guestbook – Soketi Production Server</title>
+<title>P2P Live Guestbook – Soketi Port 6001</title>
 <link rel="icon" href="data:;base64,iVBORw0KGgo=">
 <style>
   body {font-family:system-ui;background:#000;color:#0f0;padding:30px;margin:0;}
@@ -21,29 +21,30 @@
   .server-config {margin:10px 0;padding:10px;background:#111;border:1px solid #0f0;}
   .config-input {background:#002200;border-color:#0f0;margin:5px 0;}
   .info-box {margin:20px 0;padding:15px;background:#111;border:1px solid #0f0;}
-  .quick-connect {margin:10px 0;padding:10px;background:#002200;border:1px solid #0f0;}
 </style>
 </head>
 <body>
 
-<h1>P2P Live Guestbook – Soketi Production Server</h1>
-<p>Connected to your Soketi server at: <strong>enginuecoresaas-soketi.uraoah.easypanel.host</strong></p>
+<h1>P2P Live Guestbook – Soketi Port 6001</h1>
+<p>WebSocket connection to port 6001 - TCP confirmed working</p>
 
-<div class="connection-status" id="connectionStatus">Ready to connect to Soketi</div>
+<div class="connection-status" id="connectionStatus">Ready to connect to port 6001</div>
 
 <div class="server-config">
-  <strong>Soketi Server Configuration:</strong><br>
-  <input type="text" id="serverUrl" placeholder="WebSocket URL" value="wss://enginuecoresaas-soketi.uraoah.easypanel.host" class="config-input">
+  <strong>WebSocket Configuration (Port 6001):</strong><br>
+  <input type="text" id="serverHost" placeholder="Server host" value="enginuecoresaas-soketi.uraoah.easypanel.host" class="config-input">
+  <input type="number" id="serverPort" placeholder="Port" value="6001" class="config-input">
   <input type="text" id="appKey" placeholder="App Key" value="app-key" class="config-input">
   <input type="text" id="appSecret" placeholder="App Secret" value="secret" class="config-input">
-  <button id="connectBtn">Connect to Soketi</button>
-  <div id="serverStatus">Enter your Soketi credentials and click Connect</div>
-</div>
-
-<div class="quick-connect">
-  <strong>Quick Connect (Common Soketi Setups):</strong><br>
-  <button onclick="useDefaultCredentials()">Use Default Soketi Credentials</button>
-  <button onclick="useLocalSoketi()">Connect to Local Soketi</button>
+  
+  <div style="margin: 10px 0;">
+    <strong>Protocol:</strong>
+    <label><input type="radio" name="protocol" value="ws" checked> WS (unsecured)</label>
+    <label><input type="radio" name="protocol" value="wss"> WSS (secured)</label>
+  </div>
+  
+  <button id="connectBtn">Connect to WebSocket</button>
+  <div id="serverStatus">Configure your connection and click Connect</div>
 </div>
 
 <input type="text" id="name" placeholder="Your name (optional)" value="Visitor">
@@ -56,6 +57,7 @@
 
 <script type="module">
 import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@13.6.27/+esm';
+import { WebsocketProvider } from 'https://cdn.jsdelivr.net/npm/y-websocket@3.0.0/+esm';
 
 // DOM elements
 const connectionStatus = document.getElementById('connectionStatus');
@@ -64,7 +66,8 @@ const peersDiv = document.getElementById('peers');
 const sendBtn = document.getElementById('sendBtn');
 const messagesDiv = document.getElementById('messages');
 const serverStatusDiv = document.getElementById('serverStatus');
-const serverUrlInput = document.getElementById('serverUrl');
+const serverHostInput = document.getElementById('serverHost');
+const serverPortInput = document.getElementById('serverPort');
 const appKeyInput = document.getElementById('appKey');
 const appSecretInput = document.getElementById('appSecret');
 const connectBtn = document.getElementById('connectBtn');
@@ -74,292 +77,193 @@ let provider = null;
 let ydoc = null;
 let messages = null;
 let isConnected = false;
-let reconnectAttempts = 0;
-const maxReconnectAttempts = 5;
 
 // Room name
-const ROOM_NAME = "soketi-guestbook-room-v1";
+const ROOM_NAME = "soketi-port-6001-guestbook";
 
-// Custom WebSocket provider for Soketi
-class SoketiYjsProvider {
-  constructor(serverUrl, roomName, ydoc, options = {}) {
-    this.serverUrl = serverUrl;
-    this.roomName = roomName;
-    this.ydoc = ydoc;
-    this.options = options;
-    this.ws = null;
-    this.connected = false;
-    this.peers = new Set();
-    this.reconnectTimeout = null;
-    
-    this.connect();
-  }
+// Get selected protocol
+function getProtocol() {
+  return document.querySelector('input[name="protocol"]:checked').value;
+}
 
-  connect() {
-    try {
-      // Clean up any existing connection
-      if (this.ws) {
-        this.ws.close();
-      }
-      
-      console.log(`Connecting to Soketi: ${this.serverUrl}`);
-      this.ws = new WebSocket(this.serverUrl);
-      
-      this.ws.onopen = () => {
-        console.log('✅ WebSocket connected to Soketi');
-        this.connected = true;
-        reconnectAttempts = 0;
-        
-        if (this.options.onStatus) {
-          this.options.onStatus({ status: 'connected' });
-        }
-        
-        // Send initial sync request
-        this.send({
-          type: 'yjs-sync-request',
-          room: this.roomName
-        });
-      };
-
-      this.ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          this.handleMessage(data);
-        } catch (error) {
-          console.error('Error parsing message:', error);
-        }
-      };
-
-      this.ws.onclose = (event) => {
-        console.log('❌ WebSocket disconnected from Soketi:', event.code, event.reason);
-        this.connected = false;
-        
-        if (this.options.onStatus) {
-          this.options.onStatus({ status: 'disconnected' });
-        }
-        
-        // Attempt reconnect with exponential backoff
-        if (reconnectAttempts < maxReconnectAttempts) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-          console.log(`Reconnecting in ${delay}ms... (attempt ${reconnectAttempts + 1})`);
-          
-          this.reconnectTimeout = setTimeout(() => {
-            reconnectAttempts++;
-            this.connect();
-          }, delay);
-        }
-      };
-
-      this.ws.onerror = (error) => {
-        console.error('❌ WebSocket error:', error);
-        if (this.options.onStatus) {
-          this.options.onStatus({ status: 'error', error });
-        }
-      };
-
-    } catch (error) {
-      console.error('❌ Failed to connect to Soketi:', error);
-      if (this.options.onStatus) {
-        this.options.onStatus({ status: 'error', error });
-      }
-    }
-  }
-
-  send(data) {
-    if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
-      return true;
-    }
-    return false;
-  }
-
-  handleMessage(data) {
-    switch (data.type) {
-      case 'yjs-update':
-        // Apply Yjs update from server/other clients
-        try {
-          const update = new Uint8Array(data.update);
-          Y.applyUpdate(this.ydoc, update);
-        } catch (error) {
-          console.error('Error applying Yjs update:', error);
-        }
-        break;
-        
-      case 'peer-joined':
-        this.peers.add(data.peerId);
-        this.updatePeerCount();
-        break;
-        
-      case 'peer-left':
-        this.peers.delete(data.peerId);
-        this.updatePeerCount();
-        break;
-        
-      case 'peer-count':
-        if (this.options.onPeers) {
-          this.options.onPeers(data.count);
-        }
-        break;
-    }
-  }
-
-  // Send Yjs updates to server
-  sendYjsUpdate(update) {
-    this.send({
-      type: 'yjs-update',
-      room: this.roomName,
-      update: Array.from(update)
-    });
-  }
-
-  updatePeerCount() {
-    if (this.options.onPeers) {
-      this.options.onPeers(this.peers.size);
-    }
-  }
-
-  disconnect() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-    if (this.ws) {
-      this.ws.close();
-    }
-  }
-
-  destroy() {
-    this.disconnect();
+// Build WebSocket URL
+function buildWebSocketUrl() {
+  const protocol = getProtocol();
+  const host = serverHostInput.value.trim();
+  const port = serverPortInput.value.trim();
+  
+  if (port === '80' || port === '443') {
+    // Standard ports don't need :port in URL
+    return `${protocol}://${host}`;
+  } else {
+    return `${protocol}://${host}:${port}`;
   }
 }
 
-// Initialize connection to Soketi
-function initializeSoketi(serverUrl, appKey, appSecret) {
+// Test WebSocket connection
+function testWebSocketConnection(url) {
+  return new Promise((resolve) => {
+    const testWs = new WebSocket(url);
+    const startTime = Date.now();
+    
+    testWs.onopen = () => {
+      const latency = Date.now() - startTime;
+      resolve({ success: true, latency, error: null });
+      testWs.close();
+    };
+    
+    testWs.onerror = (error) => {
+      resolve({ success: false, latency: null, error: error.type });
+    };
+    
+    testWs.onclose = (event) => {
+      if (event.code !== 1000) {
+        resolve({ success: false, latency: null, error: `Closed: ${event.code}` });
+      }
+    };
+    
+    // Timeout after 5 seconds
+    setTimeout(() => {
+      if (testWs.readyState === WebSocket.CONNECTING) {
+        resolve({ success: false, latency: null, error: 'Timeout' });
+        testWs.close();
+      }
+    }, 5000);
+  });
+}
+
+// Initialize connection
+async function initializeConnection() {
   // Cleanup previous connection
   if (provider) {
     provider.disconnect();
     provider.destroy();
+    provider = null;
+  }
+  
+  if (ydoc) {
+    ydoc.destroy();
+    ydoc = null;
   }
   
   // Create new Yjs document
   ydoc = new Y.Doc();
   messages = ydoc.getArray('messages');
   
-  updateConnectionStatus('connecting', `Connecting to Soketi server...`);
-  serverStatusDiv.textContent = `Connecting to ${serverUrl}...`;
+  const wsUrl = buildWebSocketUrl();
+  
+  updateConnectionStatus('connecting', `Testing WebSocket connection...`);
+  serverStatusDiv.textContent = `Testing: ${wsUrl}`;
   
   try {
-    // Create custom Soketi provider
-    provider = new SoketiYjsProvider(serverUrl, ROOM_NAME, ydoc, {
-      onStatus: (event) => {
-        handleSoketiStatus(event.status, event.error);
-      },
-      onPeers: (count) => {
-        peersDiv.textContent = `Peers: ${count}`;
+    // Test connection first
+    const testResult = await testWebSocketConnection(wsUrl);
+    
+    if (!testResult.success) {
+      throw new Error(`WebSocket test failed: ${testResult.error}`);
+    }
+    
+    serverStatusDiv.textContent = `✅ WebSocket test passed! Latency: ${testResult.latency}ms. Connecting Yjs...`;
+    
+    // Now connect Yjs WebSocket provider
+    provider = new WebsocketProvider(wsUrl, ROOM_NAME, ydoc);
+    
+    provider.on('status', event => {
+      console.log('Yjs WebSocket status:', event.status);
+      
+      switch (event.status) {
+        case 'connected':
+          isConnected = true;
+          updateConnectionStatus('connected', `✅ Connected to WebSocket!`);
+          sendBtn.disabled = false;
+          updateStatus('Synced via WebSocket');
+          serverStatusDiv.textContent = `✅ Fully connected! Room: ${ROOM_NAME}`;
+          break;
+          
+        case 'connecting':
+          updateConnectionStatus('connecting', `Yjs connecting...`);
+          sendBtn.disabled = true;
+          break;
+          
+        case 'disconnected':
+          isConnected = false;
+          updateConnectionStatus('disconnected', `Yjs disconnected`);
+          sendBtn.disabled = true;
+          updateStatus('Disconnected');
+          break;
       }
     });
     
-    // Set up Yjs document synchronization
-    ydoc.on('update', (update) => {
-      // Send Yjs updates to Soketi server
-      if (provider && provider.connected) {
-        provider.sendYjsUpdate(update);
+    // Handle awareness (peer count)
+    provider.awareness.on('change', () => {
+      updatePeerCount();
+    });
+    
+    // Handle sync events
+    provider.on('sync', (isSynced) => {
+      if (isSynced) {
+        console.log('Yjs document synced');
+        updateStatus('Document synced');
       }
     });
     
-    // Observe messages array for changes
+    // Observe messages for changes
     messages.observe(renderMessages);
     
     // Initial render
     renderMessages();
     
   } catch (error) {
-    console.error('Soketi initialization failed:', error);
+    console.error('Connection failed:', error);
     updateConnectionStatus('disconnected', `Connection failed: ${error.message}`);
-    serverStatusDiv.textContent = `❌ Connection failed: ${error.message}`;
-  }
-}
-
-// Handle Soketi connection status
-function handleSoketiStatus(status, error = null) {
-  const serverUrl = serverUrlInput.value;
-  
-  switch (status) {
-    case 'connected':
-      isConnected = true;
-      updateConnectionStatus('connected', `✅ Connected to Soketi server`);
-      sendBtn.disabled = false;
-      updateStatus('Synced with Soketi server');
-      serverStatusDiv.textContent = `✅ Connected to Soketi - Room: ${ROOM_NAME}`;
-      break;
-      
-    case 'connecting':
-      updateConnectionStatus('connecting', `Connecting to Soketi...`);
-      sendBtn.disabled = true;
-      serverStatusDiv.textContent = `Connecting to ${serverUrl}...`;
-      break;
-      
-    case 'disconnected':
-      isConnected = false;
-      updateConnectionStatus('disconnected', `Disconnected from Soketi`);
-      sendBtn.disabled = true;
-      updateStatus('Disconnected - attempting to reconnect...');
-      serverStatusDiv.textContent = `❌ Disconnected - reconnecting...`;
-      break;
-      
-    case 'error':
-      isConnected = false;
-      updateConnectionStatus('disconnected', `Connection error: ${error?.message || 'Unknown error'}`);
-      sendBtn.disabled = true;
-      serverStatusDiv.textContent = `❌ Connection error`;
-      break;
+    serverStatusDiv.textContent = `❌ ${error.message}`;
   }
 }
 
 // Connect button handler
-connectBtn.addEventListener('click', () => {
-  const serverUrl = serverUrlInput.value.trim();
-  const appKey = appKeyInput.value.trim();
-  const appSecret = appSecretInput.value.trim();
+connectBtn.addEventListener('click', async () => {
+  const host = serverHostInput.value.trim();
+  const port = serverPortInput.value.trim();
   
-  if (!serverUrl) {
-    alert('Please enter a Soketi server URL');
+  if (!host) {
+    alert('Please enter a server host');
     return;
   }
   
-  if (!appKey) {
-    alert('Please enter an App Key');
+  if (!port) {
+    alert('Please enter a port');
     return;
   }
   
-  initializeSoketi(serverUrl, appKey, appSecret);
+  await initializeConnection();
 });
 
-// Quick connect functions
-window.useDefaultCredentials = function() {
-  serverUrlInput.value = 'wss://enginuecoresaas-soketi.uraoah.easypanel.host';
-  appKeyInput.value = 'app-key';
-  appSecretInput.value = 'secret';
-  connectBtn.click();
-};
-
-window.useLocalSoketi = function() {
-  serverUrlInput.value = 'ws://localhost:6001';
-  appKeyInput.value = 'app-key';
-  appSecretInput.value = 'secret';
-  connectBtn.click();
-};
-
-// Enter key for server URL
-serverUrlInput.addEventListener('keypress', e => {
-  if (e.key === 'Enter') {
-    connectBtn.click();
+// Update peer count
+function updatePeerCount() {
+  if (provider && provider.awareness) {
+    const states = Array.from(provider.awareness.getStates().keys());
+    const peerCount = Math.max(0, states.length - 1); // Exclude self
+    peersDiv.textContent = `Peers: ${peerCount}`;
+  } else {
+    peersDiv.textContent = `Peers: 0`;
   }
-});
+}
+
+// Update connection status
+function updateConnectionStatus(status, message) {
+  connectionStatus.textContent = message;
+  connectionStatus.className = `connection-status ${status}`;
+}
+
+// Update general status
+function updateStatus(message) {
+  statusDiv.textContent = `Status: ${message}`;
+}
 
 // Send message function
 window.sendMessage = function() {
   if (!isConnected || !messages) {
-    alert('Not connected to Soketi server');
+    alert('Not connected to server');
     return;
   }
   
@@ -378,7 +282,7 @@ window.sendMessage = function() {
     id: Math.random().toString(36).substr(2, 9)
   };
   
-  // Add to Yjs array (this will trigger sync via the update event)
+  // Add to Yjs array
   messages.push([newMessage]);
   
   // Save to localStorage as backup
@@ -405,17 +309,6 @@ document.getElementById('msg').addEventListener('keypress', e => {
     window.sendMessage();
   }
 });
-
-// Update connection status
-function updateConnectionStatus(status, message) {
-  connectionStatus.textContent = message;
-  connectionStatus.className = `connection-status ${status}`;
-}
-
-// Update general status
-function updateStatus(message) {
-  statusDiv.textContent = `Status: ${message}`;
-}
 
 // Render messages
 function renderMessages() {
@@ -445,46 +338,50 @@ const welcome = document.createElement('div');
 welcome.className = 'msg';
 welcome.style.color = '#0a0';
 welcome.innerHTML = `
-  <strong>🚀 Soketi-Powered Live Guestbook</strong><br>
-  • Connected to your production Soketi server<br>
-  • Real-time sync across all users<br>
-  • Automatic reconnection if disconnected<br>
+  <strong>🚀 Soketi Port 6001 Guestbook</strong><br>
+  • TCP connection confirmed to port 6001<br>
+  • Using direct WebSocket connection<br>
+  • Real-time sync across all connected users<br>
   • Production-grade WebSocket infrastructure
 `;
 messagesDiv.appendChild(welcome);
 
-console.log('Soketi guestbook ready - click "Use Default Credentials" to connect');
+// Auto-connect on load
+setTimeout(() => {
+  connectBtn.click();
+}, 1000);
 
-// Auto-connect if credentials are already filled
-if (serverUrlInput.value && appKeyInput.value) {
-  setTimeout(() => connectBtn.click(), 1000);
-}
+console.log('Soketi port 6001 guestbook ready');
 </script>
 
 <div class="info-box">
-  <h3>🔧 Soketi Server Information</h3>
+  <h3>🔧 Port 6001 Connection Guide</h3>
   
-  <p><strong>Your Soketi Server:</strong></p>
+  <p><strong>Your Configuration:</strong></p>
   <ul>
-    <li>URL: <code>enginuecoresaas-soketi.uraoah.easypanel.host</code></li>
-    <li>WebSocket: <code>wss://enginuecoresaas-soketi.uraoah.easypanel.host</code></li>
-    <li>Status: ✅ Running on EasyPanel</li>
+    <li>Host: <code>enginuecoresaas-soketi.uraoah.easypanel.host</code></li>
+    <li>Port: <code>6001</code> ✅ (TCP confirmed working)</li>
+    <li>Protocol: <code>WS</code> (unsecured WebSocket)</li>
   </ul>
   
-  <p><strong>Next Steps:</strong></p>
+  <p><strong>Expected WebSocket URL:</strong></p>
+  <code>ws://enginuecoresaas-soketi.uraoah.easypanel.host:6001</code>
+  
+  <p><strong>If connection fails:</strong></p>
   <ol>
-    <li>Click "Use Default Credentials" to test connection</li>
-    <li>If connection fails, check your EasyPanel environment variables</li>
-    <li>Open this page in multiple browsers/tabs to test real-time sync</li>
-    <li>Monitor connections in your EasyPanel logs</li>
+    <li>Check if EasyPanel allows WebSocket connections on port 6001</li>
+    <li>Verify the domain resolves correctly</li>
+    <li>Try both WS and WSS protocols</li>
+    <li>Check browser console for detailed error messages</li>
   </ol>
   
-  <p><strong>Expected Environment Variables in EasyPanel:</strong></p>
-  <ul>
-    <li><code>SOKETI_DEFAULT_APP_ID</code> - Your app ID</li>
-    <li><code>SOKETI_DEFAULT_APP_KEY</code> - App key (usually "app-key")</li>
-    <li><code>SOKETI_DEFAULT_APP_SECRET</code> - App secret (usually "secret")</li>
-  </ul>
+  <p><strong>Troubleshooting Steps:</strong></p>
+  <ol>
+    <li>The page will auto-test the connection on load</li>
+    <li>If WebSocket test passes but Yjs fails, it's a Soketi configuration issue</li>
+    <li>If both fail, check EasyPanel WebSocket settings</li>
+    <li>Contact EasyPanel support if TCP works but WebSocket doesn't</li>
+  </ol>
 </div>
 
 </body>
