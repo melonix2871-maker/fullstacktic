@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>P2P Live Guestbook – Every Browser is a Node (GitHub Pages 2025)</title>
+<title>P2P Live Guestbook – Every Browser is a Node (Fixed 2025)</title>
 <style>
   body {font-family:system-ui;background:#000;color:#0f0;padding:30px;margin:0;}
   input,textarea,button{width:100%;padding:12px;margin:10px 0;background:#111;color:#0f0;border:2px solid #0f0;font-size:16px;box-sizing:border-box;}
@@ -25,12 +25,12 @@
 <div id="messages"></div>
 <div class="peers" id="peers">Peers: 1 (you)</div>
 
-<!-- Yjs + WebRTC (the magic) -->
+<!-- Yjs + WebRTC (fixed imports) -->
 <script type="module">
-import { Y } from 'https://cdn.jsdelivr.net/npm/yjs@13.6.15/+esm';
-import { WebrtcProvider } from 'https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/+esm';
+import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@13.6.27/+esm?module';
+import { WebrtcProvider } from 'https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/+esm?module';
 
-// Unique room name (change this for your own guestbook)
+// Unique room name (change for your own guestbook)
 const ROOM = "global-guestbook-2025-v3";
 
 const ydoc = new Y.Doc();
@@ -43,9 +43,23 @@ const provider = new WebrtcProvider(ROOM, ydoc, {
 const messagesDiv = document.getElementById('messages');
 const peersDiv = document.getElementById('peers');
 
+// FIXED: Define send() in scope
+window.send = function() {
+  const name = document.getElementById('name').value.trim();
+  const text = document.getElementById('msg').value.trim();
+  if (!text) return;
+  messages.push([{
+    name: name || 'Anonymous',
+    text,
+    time: Date.now()
+  }]);
+  document.getElementById('msg').value = '';
+};
+
+// Render messages
 function render() {
   messagesDiv.innerHTML = '';
-  messages.forEach(item => {
+  [...messages].reverse().forEach(item => {
     const div = document.createElement('div');
     div.className = 'msg';
     div.innerHTML = `<span class="name">${escapeHtml(item.name || 'Anon')}</span>: ${escapeHtml(item.text)}<br>
@@ -63,18 +77,7 @@ provider.on('peers', ({ added, removed, webrtcPeers }) => {
   peersDiv.textContent = `Peers online: ${webrtcPeers.length + 1}`;
 });
 
-function send() {
-  const name = document.getElementById('name').value.trim();
-  const text = document.getElementById('msg').value.trim();
-  if (!text) return;
-  messages.push([{
-    name: name || 'Anonymous',
-    text,
-    time: Date.now()
-  }]);
-  document.getElementById('msg').value = '';
-}
-
+// Enter key to send
 document.getElementById('msg').addEventListener('keypress', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -82,11 +85,15 @@ document.getElementById('msg').addEventListener('keypress', e => {
   }
 });
 
-// Load old messages from IndexedDB (persists forever)
+// Initial render
 render();
 
 // Welcome
-messagesDiv.innerHTML = '<div class="msg" style="color:#0a0">You are connected. You are now a node. Messages sync live.</div>' + messagesDiv.innerHTML;
+const welcome = document.createElement('div');
+welcome.className = 'msg';
+welcome.style.color = '#0a0';
+welcome.innerHTML = 'You are connected. You are now a node. Messages sync live.';
+messagesDiv.prepend(welcome);
 
 function escapeHtml(text) {
   const div = document.createElement('div');
