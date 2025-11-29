@@ -52,13 +52,13 @@
 
 <script type="module">
 // Import Yjs and providers
-const YjsImport = await import('https://cdn.jsdelivr.net/npm/yjs@14.0.0/+esm');
+const YjsImport = await import('https://cdn.jsdelivr.net/npm/yjs@13.6.27/+esm');
 const Y = YjsImport;
 
 // Try to import WebRTC provider
 let WebrtcProvider;
 try {
-  const WebrtcModule = await import('https://cdn.jsdelivr.net/npm/y-webrtc@3.0.0/+esm');
+  const WebrtcModule = await import('https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/+esm');
   WebrtcProvider = WebrtcModule.WebrtcProvider;
 } catch (e) {
   console.warn('WebRTC provider not available:', e);
