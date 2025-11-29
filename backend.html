@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>JSON Database Admin – Pure PHP in Browser</title>
+  <style>
+    body{font-family:monospace;background:#000;color:#0f0;padding:20px;}
+    textarea{width:100%;height:400px;background:#111;color:#0f0;border:2px solid #0f0;padding:10px;font-size:14px;}
+    button{padding:10px 20px;background:#0f0;color:#000;border:none;font-weight:bold;cursor:pointer;margin:10px 0;}
+    pre{background:#111;padding:15px;border:2px solid #0f0;margin-top:20px;white-space:pre-wrap;}
+  </style>
+</head>
+<body>
+
+<h1>JSON Database Admin Panel</h1>
+<p>This file is pure PHP running in your browser. It reads/writes <code>database.json</code> forever.</p>
+
+<textarea id="json">
+<?php
+// === PURE PHP STARTS HERE ===
+$file = 'database.json';
+
+// Initialize if not exists
+if (!file_exists($file)) {
+  $init = json_encode(["messages" => []], JSON_PRETTY_PRINT);
+  file_put_contents($file, $init);
+}
+
+// Load current data
+$data = json_decode(file_get_contents($file), true);
+
+// Check if frontend sent new data via localStorage trick
+$pending = <<<JS
+<script>
+if(localStorage.getItem("pending_save")){
+  document.getElementById("json").value = localStorage.getItem("pending_save");
+  localStorage.removeItem("pending_save");
+}
+</script>
+JS;
+echo $pending;
+
+// Show current JSON
+echo htmlspecialchars(json_encode($data, JSON_PRETTY_PRINT));
+?>
+</textarea><br>
+
+<button onclick="save()">Save & Update database.json (affects everyone)</button>
+<button onclick="addSample()">Add Sample Message</button>
+
+<pre id="out">Ready. Edit JSON above → click Save.</pre>
+
+<script>
+// Auto-save when user clicks Save
+function save() {
+  const json = document.getElementById("json").value;
+  try {
+    JSON.parse(json); // validate
+  } catch(e) {
+    alert("Invalid JSON!");
+    return;
+  }
+
+  // Create blob and trigger download → user saves as database.json
+  const blob = new Blob([json], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'database.json';
+  a.click();
+
+  document.getElementById("out").textContent = "Saved! Replace the old database.json with this new file.\nEveryone will see the update immediately.";
+}
+
+// Add Sample Message";
+}
+
+function addSample() {
+  const ta = document.getElementById("json");
+  const data = JSON.parse(ta.value);
+  data.messages.unshift({
+    name: "Admin",
+    message: "Hello from backend.html at " + new Date().toLocaleString(),
+    time: new Date().toLocaleString()
+  });
+  ta.value = JSON.stringify(data, null, 2);
+}
+</script>
+
+<?php
+// Show stats
+echo "<pre id='stats'>";
+echo "Database size: " . filesize('database.json') . " bytes\n";
+echo "Messages: " . count($data['messages']) . "\n";
+echo "Last modified: " . date("Y-m-d H:i:s", filemtime('database.json')) . "\n";
+echo "</pre>";
+?>
+
+</body>
+</html>
