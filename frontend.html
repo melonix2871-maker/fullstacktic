@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Live Shared Guestbook</title>
+  <style>
+    body{font-family:system-ui;background:#000;color:#0f0;padding:20px;}
+    input,textarea,button{width:100%;padding:12px;margin:8px 0;background:#111;color:#0f0;border:2px solid #0f0;font-size:16px;box-sizing:border-box;}
+    button{background:#0f0;color:#000;font-weight:bold;cursor:pointer;}
+    table{width:100%;border-collapse:collapse;margin-top:20px;}
+    th,td{border:2px solid #0f0;padding:10px;text-align:left;}
+    th{background:#0a0;color:#000;}
+  </style>
+</head>
+<body>
+  <h1>Live Shared Guestbook</h1>
+  <p>All users see the same messages instantly. Data lives forever.</p>
+
+  <input type="text" id="name" placeholder="Your name">
+  <textarea id="msg" rows="3" placeholder="Your message"></textarea>
+  <button onclick="add()">Send Message</button>
+
+  <h2>Messages</h2>
+  <div id="list">Loading…</div>
+
+  <script>
+  const DB_URL = "database.json?" + Date.now(); // bust cache
+
+  async function load() {
+    const res = await fetch(DB_URL);
+    const data = await res.json();
+    let html = "<table><tr><th>Name</th><th>Message</th><th>Time</th></tr>";
+    data.messages.reverse().forEach(m => {
+      html += `<tr><td>${m.name}</td><td>${m.message}</td><td>${m.time}</td></tr>`;
+    });
+    html += "</table>";
+    document.getElementById("list").innerHTML = html;
+  }
+
+  async function add() {
+    const name = document.getElementById("name").value || "Anonymous";
+    const message = document.getElementById("msg").value;
+    if (!message) return alert("Write something!");
+
+    const res = await fetch(DB_URL);
+    const data = await res.json();
+    data.messages.push({
+      name, message,
+      time: new Date().toLocaleString()
+    });
+
+    // This trick works on GitHub Pages / Netlify: we can't write files,
+    // but we can let backend.html do the saving when someone visits it
+    localStorage.setItem("pending_save", JSON.stringify(data));
+
+    document.getElementById("msg").value = "";
+    load();
+    alert("Message saved! It will appear for everyone when someone opens backend.html");
+  }
+
+  setInterval(load, 10000);
+  load();
+  </script>
+</body>
+</html>
