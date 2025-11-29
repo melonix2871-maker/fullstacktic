@@ -2,90 +2,552 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>P2P Guestbook - No Server Required</title>
+<title>P2P Live Guestbook – First Viewer as Server</title>
+<link rel="icon" href="data:;base64,iVBORw0KGgo=">
 <style>
   body {font-family:system-ui;background:#000;color:#0f0;padding:30px;margin:0;}
   input,textarea,button{width:100%;padding:12px;margin:10px 0;background:#111;color:#0f0;border:2px solid #0f0;font-size:16px;box-sizing:border-box;}
   button{background:#0f0;color:#000;font-weight:bold;cursor:pointer;}
+  button:disabled{background:#333;color:#666;cursor:not-allowed;}
   .msg{border:1px solid #0f0;padding:10px;margin:10px 0;background:#001100;}
-  .peers{position:fixed;top:10px;right:10px;background:#000;border:1px solid #0f0;padding:8px;}
+  .name{font-weight:bold;}
+  .time{font-size:12px;color:#0a0;}
+  #peers{position:fixed;top:10px;right:10px;background:#000;border:1px solid #0f0;padding:8px;border-radius:4px;}
+  .status{position:fixed;top:50px;right:10px;background:#000;border:1px solid #0f0;padding:8px;border-radius:4px;}
+  .connection-status {margin:10px 0;padding:8px;border-radius:4px;}
+  .connection-status.connected {background:#001100;border:1px solid #0f0;}
+  .connection-status.disconnected {background:#110000;border:1px solid #f00;}
+  .connection-status.connecting {background:#111100;border:1px solid #ff0;}
+  .server-status {margin:10px 0;padding:10px;background:#111;border:1px solid #0f0;}
+  .server-role {background:#002200 !important;border-color:#0f0 !important;}
+  .client-role {background:#000022 !important;border-color:#00f !important;}
+  .sync-mode {margin:10px 0;padding:10px;background:#111;border:1px solid #0f0;}
+  .mode-btn {width:auto;margin:5px;padding:8px 12px;}
+  .mode-btn.active {background:#0f0;color:#000;}
+  .mode-btn.inactive {background:#333;color:#666;}
 </style>
 </head>
 <body>
 
-<h1>P2P Guestbook - Direct Peer Connections</h1>
-<p>No server required! Uses WebRTC for direct peer-to-peer connections.</p>
+<h1>P2P Live Guestbook – First Viewer Becomes Server</h1>
+<p>First person to open this page becomes the Yjs server! Others connect to them.</p>
 
-<input type="text" id="name" placeholder="Your name" value="Visitor">
-<textarea id="msg" rows="3" placeholder="Your message"></textarea>
-<button onclick="send()">Send Message</button>
+<div class="connection-status" id="connectionStatus">Initializing connection...</div>
+<div class="server-status" id="serverStatus">Determining server role...</div>
+
+<div class="sync-mode">
+  <strong>Connection Mode:</strong>
+  <button id="p2pMode" class="mode-btn active" onclick="switchToP2P()">P2P Mode (First Viewer as Server)</button>
+  <button id="webrtcMode" class="mode-btn inactive" onclick="switchToWebRTC()">WebRTC (Public Servers)</button>
+  <button id="localMode" class="mode-btn inactive" onclick="switchToLocal()">Local Only</button>
+</div>
+
+<input type="text" id="name" placeholder="Your name (optional)" value="Visitor">
+<textarea id="msg" rows="3" placeholder="Your message – syncs live everywhere"></textarea>
+<button id="sendBtn" onclick="send()">Send Message</button>
 
 <div id="messages"></div>
+<div class="status" id="status">Status: Initializing...</div>
 <div class="peers" id="peers">Peers: 0</div>
 
 <script type="module">
-import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@14.0.0-14/+esm';
-import { WebrtcProvider } from 'https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/+esm';
+// Import Yjs and providers
+const YjsImport = await import('https://cdn.jsdelivr.net/npm/yjs@14.0.0/+esm');
+const Y = YjsImport;
 
-const ROOM = "p2p-guestbook-room-2025";
+// Try to import WebRTC provider
+let WebrtcProvider;
+try {
+  const WebrtcModule = await import('https://cdn.jsdelivr.net/npm/y-webrtc@3.0.0/+esm');
+  WebrtcProvider = WebrtcModule.WebrtcProvider;
+} catch (e) {
+  console.warn('WebRTC provider not available:', e);
+  WebrtcProvider = null;
+}
 
-// Create Yjs document
+// Import for P2P WebSocket server
+let Peer;
+try {
+  const PeerModule = await import('https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js');
+  Peer = PeerModule.default;
+} catch (e) {
+  console.warn('PeerJS not available:', e);
+  Peer = null;
+}
+
+// Unique room name
+const ROOM = "first-viewer-server-guestbook-v1";
+
+// DOM elements
+const connectionStatus = document.getElementById('connectionStatus');
+const statusDiv = document.getElementById('status');
+const peersDiv = document.getElementById('peers');
+const sendBtn = document.getElementById('sendBtn');
+const messagesDiv = document.getElementById('messages');
+const serverStatusDiv = document.getElementById('serverStatus');
+
+// Initialize Yjs
 const ydoc = new Y.Doc();
 const messages = ydoc.getArray('messages');
 
-// Connect via WebRTC (P2P)
-const provider = new WebrtcProvider(ROOM, ydoc, {
-  signaling: [
-    'wss://y-webrtc-signaling-eu.herokuapp.com',
-    'wss://y-webrtc-signaling-us.herokuapp.com',
-    'wss://signaling.yjs.dev'
-  ],
-  password: null,
-  awareness: {
-    // Share cursor positions, etc.
-    name: 'Guestbook User'
+// Connection state
+let currentProvider = null;
+let currentMode = 'p2p';
+let isConnected = false;
+let isServer = false;
+let peer = null;
+let serverPeerId = null;
+let dataConnection = null;
+
+// Available signaling servers for fallback
+const WEBRTC_SIGNALING_SERVERS = [
+  'wss://signaling.yjs.dev',
+  'wss://y-webrtc-eu.fly.dev',
+  'wss://y-webrtc-us.fly.dev'
+];
+
+// First Viewer as Server System
+async function setupFirstViewerServer() {
+  cleanupCurrentProvider();
+  
+  // Check if we should become the server
+  const serverInfo = await determineServerRole();
+  
+  if (serverInfo.isServer) {
+    // We are the first viewer - become the server
+    await becomeServer();
+  } else {
+    // We are a client - connect to the server
+    await connectToServer(serverInfo.serverPeerId);
   }
-});
+}
 
-// UI elements
-const messagesDiv = document.getElementById('messages');
-const peersDiv = document.getElementById('peers');
+// Determine if we should be the server or client
+async function determineServerRole() {
+  updateServerStatus('Checking for existing server...');
+  
+  // Try to get server info from localStorage (simulates server discovery)
+  const storedServer = localStorage.getItem(`${ROOM}-server`);
+  const storedTimestamp = localStorage.getItem(`${ROOM}-server-timestamp`);
+  
+  // Check if stored server is still valid (within last 5 minutes)
+  if (storedServer && storedTimestamp) {
+    const serverTime = parseInt(storedTimestamp);
+    const currentTime = Date.now();
+    const fiveMinutes = 5 * 60 * 1000;
+    
+    if (currentTime - serverTime < fiveMinutes) {
+      // Server exists and is recent
+      updateServerStatus(`Found existing server: ${storedServer}`);
+      return { isServer: false, serverPeerId: storedServer };
+    }
+  }
+  
+  // No valid server found - we become the server
+  const ourPeerId = generatePeerId();
+  localStorage.setItem(`${ROOM}-server`, ourPeerId);
+  localStorage.setItem(`${ROOM}-server-timestamp`, Date.now().toString());
+  
+  updateServerStatus('You are the FIRST VIEWER - Becoming Server!');
+  return { isServer: true, serverPeerId: ourPeerId };
+}
 
-// Send function
+// Generate a unique peer ID
+function generatePeerId() {
+  return `server-${Math.random().toString(36).substr(2, 9)}-${Date.now().toString(36)}`;
+}
+
+// Become the P2P server
+async function becomeServer() {
+  if (!Peer) {
+    updateServerStatus('PeerJS not available - falling back to local');
+    setupLocalOnly();
+    return;
+  }
+  
+  isServer = true;
+  const ourPeerId = localStorage.getItem(`${ROOM}-server`);
+  
+  try {
+    // Create PeerJS server instance
+    peer = new Peer(ourPeerId, {
+      debug: 3,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+      }
+    });
+    
+    peer.on('open', (id) => {
+      console.log('Server peer opened with ID:', id);
+      updateConnectionStatus('connected', 'Server Mode - Accepting Connections');
+      updateServerStatus(`✅ YOU ARE THE SERVER (ID: ${id})`);
+      serverStatusDiv.className = 'server-status server-role';
+      sendBtn.disabled = false;
+      isConnected = true;
+    });
+    
+    peer.on('connection', (conn) => {
+      console.log('Client connected:', conn.peer);
+      dataConnection = conn;
+      
+      conn.on('open', () => {
+        updateStatus(`Client ${conn.peer} connected`);
+        updatePeerCount();
+        
+        // Send current document state to new client
+        const update = Y.encodeStateAsUpdate(ydoc);
+        conn.send({ type: 'ydoc-update', data: Array.from(update) });
+      });
+      
+      conn.on('data', (data) => {
+        handleClientData(data, conn);
+      });
+      
+      conn.on('close', () => {
+        console.log('Client disconnected');
+        updatePeerCount();
+      });
+      
+      conn.on('error', (err) => {
+        console.error('Connection error:', err);
+      });
+    });
+    
+    peer.on('error', (err) => {
+      console.error('PeerJS server error:', err);
+      updateConnectionStatus('disconnected', 'Server error - falling back');
+      setupLocalOnly();
+    });
+    
+  } catch (error) {
+    console.error('Failed to become server:', error);
+    updateServerStatus('Failed to become server - falling back');
+    setupLocalOnly();
+  }
+}
+
+// Connect to existing server as client
+async function connectToServer(serverPeerId) {
+  if (!Peer) {
+    updateServerStatus('PeerJS not available - falling back to local');
+    setupLocalOnly();
+    return;
+  }
+  
+  isServer = false;
+  
+  try {
+    // Create client peer (no ID needed for clients)
+    peer = new Peer({
+      debug: 2,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+      }
+    });
+    
+    peer.on('open', (id) => {
+      console.log('Client peer opened with ID:', id);
+      updateConnectionStatus('connecting', `Connecting to server ${serverPeerId}...`);
+      
+      // Connect to server
+      dataConnection = peer.connect(serverPeerId, {
+        reliable: true
+      });
+      
+      dataConnection.on('open', () => {
+        console.log('Connected to server');
+        updateConnectionStatus('connected', 'Connected to Server');
+        updateServerStatus(`✅ Connected to Server: ${serverPeerId}`);
+        serverStatusDiv.className = 'server-status client-role';
+        sendBtn.disabled = false;
+        isConnected = true;
+      });
+      
+      dataConnection.on('data', (data) => {
+        handleServerData(data);
+      });
+      
+      dataConnection.on('close', () => {
+        console.log('Disconnected from server');
+        updateConnectionStatus('disconnected', 'Disconnected from server');
+        sendBtn.disabled = true;
+        isConnected = false;
+        
+        // Try to reconnect or find new server
+        setTimeout(() => setupFirstViewerServer(), 3000);
+      });
+      
+      dataConnection.on('error', (err) => {
+        console.error('Data connection error:', err);
+      });
+    });
+    
+    peer.on('error', (err) => {
+      console.error('PeerJS client error:', err);
+      if (err.type === 'peer-unavailable') {
+        updateServerStatus('Server unavailable - you may be first viewer now');
+        // Clear old server info and try to become server
+        localStorage.removeItem(`${ROOM}-server`);
+        localStorage.removeItem(`${ROOM}-server-timestamp`);
+        setTimeout(() => setupFirstViewerServer(), 2000);
+      } else {
+        updateConnectionStatus('disconnected', 'Connection failed');
+        setupLocalOnly();
+      }
+    });
+    
+  } catch (error) {
+    console.error('Failed to connect to server:', error);
+    updateServerStatus('Connection failed - falling back');
+    setupLocalOnly();
+  }
+}
+
+// Handle data from clients (server side)
+function handleClientData(data, conn) {
+  switch (data.type) {
+    case 'ydoc-update':
+      // Apply update from client
+      Y.applyUpdate(ydoc, new Uint8Array(data.data));
+      break;
+      
+    case 'message':
+      // Broadcast message to all clients
+      if (dataConnection) {
+        dataConnection.send(data);
+      }
+      break;
+  }
+}
+
+// Handle data from server (client side)
+function handleServerData(data) {
+  switch (data.type) {
+    case 'ydoc-update':
+      // Apply update from server
+      Y.applyUpdate(ydoc, new Uint8Array(data.data));
+      break;
+      
+    case 'message':
+      // The server already applied the update, just render
+      render();
+      break;
+  }
+}
+
+// WebRTC fallback
+function setupWebRTC() {
+  cleanupCurrentProvider();
+  currentMode = 'webrtc';
+  
+  if (!WebrtcProvider) {
+    updateConnectionStatus('disconnected', 'WebRTC not available');
+    setupLocalOnly();
+    return;
+  }
+  
+  updateConnectionStatus('connecting', 'Connecting via WebRTC...');
+  updateServerStatus('Using public WebRTC signaling servers');
+  serverStatusDiv.className = 'server-status';
+  
+  try {
+    currentProvider = new WebrtcProvider(ROOM, ydoc, {
+      signaling: WEBRTC_SIGNALING_SERVERS,
+      password: null
+    });
+    
+    currentProvider.on('synced', (synced) => {
+      if (synced) {
+        isConnected = true;
+        updateConnectionStatus('connected', 'Connected via WebRTC');
+        sendBtn.disabled = false;
+        updateStatus('Synced with peers via WebRTC');
+      }
+    });
+    
+  } catch (error) {
+    console.error('WebRTC setup failed:', error);
+    setupLocalOnly();
+  }
+  
+  updateModeButtons();
+}
+
+// Local-only mode
+function setupLocalOnly() {
+  cleanupCurrentProvider();
+  currentMode = 'local';
+  
+  updateConnectionStatus('connected', 'Local Mode - Data persists in browser');
+  updateServerStatus('Using local storage only');
+  serverStatusDiv.className = 'server-status';
+  sendBtn.disabled = false;
+  isConnected = true;
+  
+  // Load from localStorage
+  try {
+    const saved = localStorage.getItem(ROOM);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      parsed.forEach(msg => {
+        if (!messages.some(m => m.time === msg.time && m.text === msg.text)) {
+          messages.push([msg]);
+        }
+      });
+    }
+  } catch (e) {
+    console.log('No previous local data found');
+  }
+  
+  updateModeButtons();
+}
+
+// Cleanup
+function cleanupCurrentProvider() {
+  if (peer) {
+    peer.destroy();
+    peer = null;
+  }
+  
+  if (currentProvider) {
+    try {
+      currentProvider.destroy();
+    } catch (e) {
+      console.log('Error cleaning up provider:', e);
+    }
+    currentProvider = null;
+  }
+  
+  dataConnection = null;
+  isServer = false;
+  isConnected = false;
+}
+
+// Update peer count
+function updatePeerCount() {
+  if (isServer && dataConnection) {
+    peersDiv.textContent = `Clients: 1`;
+  } else if (currentMode === 'webrtc' && currentProvider) {
+    peersDiv.textContent = `Peers: ?`; // WebRTC peer counting is complex
+  } else {
+    peersDiv.textContent = `Peers: 0`;
+  }
+}
+
+// Mode switching
+window.switchToP2P = function() {
+  currentMode = 'p2p';
+  setupFirstViewerServer();
+  updateModeButtons();
+};
+
+window.switchToWebRTC = function() {
+  setupWebRTC();
+  updateModeButtons();
+};
+
+window.switchToLocal = function() {
+  setupLocalOnly();
+  updateModeButtons();
+};
+
+function updateModeButtons() {
+  document.getElementById('p2pMode').className = currentMode === 'p2p' ? 'mode-btn active' : 'mode-btn inactive';
+  document.getElementById('webrtcMode').className = currentMode === 'webrtc' ? 'mode-btn active' : 'mode-btn inactive';
+  document.getElementById('localMode').className = currentMode === 'local' ? 'mode-btn active' : 'mode-btn inactive';
+}
+
+// Update status functions
+function updateConnectionStatus(status, message) {
+  connectionStatus.textContent = message;
+  connectionStatus.className = `connection-status ${status}`;
+}
+
+function updateServerStatus(message) {
+  serverStatusDiv.textContent = message;
+}
+
+function updateStatus(message) {
+  statusDiv.textContent = `Status: ${message}`;
+}
+
+// Global send function
 window.send = function() {
   const name = document.getElementById('name').value.trim();
   const text = document.getElementById('msg').value.trim();
-  if (!text) return alert('Add a message!');
   
-  messages.push([{
+  if (!text) {
+    alert('Please add a message!');
+    return;
+  }
+  
+  const newMessage = {
     name: name || 'Anonymous',
     text,
-    time: Date.now()
-  }]);
+    time: Date.now(),
+    id: Math.random().toString(36).substr(2, 9)
+  };
+  
+  if (currentMode === 'p2p') {
+    // In P2P mode, handle based on role
+    if (isServer) {
+      // Server: add directly and broadcast
+      messages.push([newMessage]);
+      if (dataConnection) {
+        dataConnection.send({ type: 'message', data: newMessage });
+      }
+    } else {
+      // Client: send to server
+      messages.push([newMessage]); // Optimistic update
+      if (dataConnection) {
+        dataConnection.send({ 
+          type: 'ydoc-update', 
+          data: Array.from(Y.encodeStateAsUpdate(ydoc))
+        });
+      }
+    }
+  } else {
+    // Other modes: use normal Yjs
+    messages.push([newMessage]);
+  }
+  
+  // Save to localStorage as backup
+  try {
+    const existing = JSON.parse(localStorage.getItem(ROOM) || '[]');
+    if (!existing.some(msg => msg.id === newMessage.id)) {
+      existing.push(newMessage);
+      localStorage.setItem(ROOM, JSON.stringify(existing));
+    }
+  } catch (e) {
+    console.warn('Could not save to localStorage');
+  }
+  
   document.getElementById('msg').value = '';
 };
 
 // Render messages
 function render() {
   messagesDiv.innerHTML = '';
+  
   [...messages].reverse().forEach(item => {
     const div = document.createElement('div');
     div.className = 'msg';
-    div.innerHTML = `<strong>${escapeHtml(item.name)}</strong>: ${escapeHtml(item.text)}<br>
-                     <small>${new Date(item.time).toLocaleString()}</small>`;
+    div.innerHTML = `<span class="name">${escapeHtml(item.name || 'Anonymous')}</span>: ${escapeHtml(item.text)}<br>
+                     <span class="time">${new Date(item.time).toLocaleString()}</span>`;
     messagesDiv.appendChild(div);
   });
 }
 
-// Update peer count
-function updatePeers() {
-  const states = Array.from(provider.awareness.getStates().keys());
-  peersDiv.textContent = `Peers: ${states.length}`;
-}
-
-// Event listeners
+// Observe changes to messages
 messages.observe(render);
-provider.awareness.on('change', updatePeers);
+
+// Enter key handler
 document.getElementById('msg').addEventListener('keypress', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -93,15 +555,39 @@ document.getElementById('msg').addEventListener('keypress', e => {
   }
 });
 
-// Initial setup
-render();
-updatePeers();
-
+// Utility function
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
+
+// Initial render
+render();
+
+// Add welcome message
+const welcome = document.createElement('div');
+welcome.className = 'msg';
+welcome.style.color = '#0a0';
+welcome.innerHTML = `
+  <strong>First Viewer Server System Active!</strong><br>
+  • <strong>P2P Mode:</strong> First viewer becomes the server<br>
+  • <strong>WebRTC Mode:</strong> Use public signaling servers<br>
+  • <strong>Local Mode:</strong> Browser storage only<br>
+  The system will automatically determine if you should be server or client.
+`;
+messagesDiv.prepend(welcome);
+
+// Start with P2P mode
+setupFirstViewerServer();
+updateModeButtons();
+
+// Server heartbeat (refresh server timestamp every minute if we're server)
+setInterval(() => {
+  if (isServer) {
+    localStorage.setItem(`${ROOM}-server-timestamp`, Date.now().toString());
+  }
+}, 60000);
 </script>
 </body>
 </html>
