@@ -8,10 +8,19 @@
   body {font-family:system-ui;background:#000;color:#0f0;padding:30px;margin:0;}
   input,textarea,button{width:100%;padding:12px;margin:10px 0;background:#111;color:#0f0;border:2px solid #0f0;font-size:16px;box-sizing:border-box;}
   button{background:#0f0;color:#000;font-weight:bold;cursor:pointer;}
+  button:disabled{background:#333;color:#666;cursor:not-allowed;}
   .msg{border:1px solid #0f0;padding:10px;margin:10px 0;background:#001100;}
   .name{font-weight:bold;}
   .time{font-size:12px;color:#0a0;}
   #peers{position:fixed;top:10px;right:10px;background:#000;border:1px solid #0f0;padding:8px;border-radius:4px;}
+  .status{position:fixed;top:10px;left:10px;background:#000;border:1px solid #0f0;padding:8px;border-radius:4px;}
+  .error{color:#f00;border-color:#f00;}
+  .success{color:#0f0;border-color:#0f0;}
+  .warning{color:#ff0;border-color:#ff0;}
+  .connection-status {margin:10px 0;padding:8px;border-radius:4px;}
+  .connection-status.connected {background:#001100;border:1px solid #0f0;}
+  .connection-status.disconnected {background:#110000;border:1px solid #f00;}
+  .connection-status.connecting {background:#111100;border:1px solid #ff0;}
 </style>
 </head>
 <body>
@@ -19,14 +28,16 @@
 <h1>P2P Live Guestbook – Global Sync Across Devices/Users</h1>
 <p>Type → press Enter → message syncs instantly to ALL peers worldwide. Data persists forever (IndexedDB + replication).</p>
 
+<div class="connection-status" id="connectionStatus">Connecting to peers...</div>
+
 <input type="text" id="name" placeholder="Your name (optional)" value="Visitor">
 <textarea id="msg" rows="3" placeholder="Your message – syncs live everywhere"></textarea>
-<button onclick="send()">Send Message</button>
+<button id="sendBtn" onclick="send()">Send Message</button>
 
 <div id="messages"></div>
+<div class="status" id="status">Status: Connecting...</div>
 <div class="peers" id="peers">Peers: Loading...</div>
 
-<!-- FIXED: ESM with jsDelivr +esm (stable imports) -->
 <script type="module">
 import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@14.0.0-14/+esm';
 import { WebsocketProvider } from 'https://cdn.jsdelivr.net/npm/y-websocket@3.0.0/+esm';
@@ -34,38 +45,138 @@ import { WebsocketProvider } from 'https://cdn.jsdelivr.net/npm/y-websocket@3.0.
 // Unique room name (change for your own guestbook)
 const ROOM = "global-guestbook-2025-v5";
 
+// Connection status element
+const connectionStatus = document.getElementById('connectionStatus');
+const statusDiv = document.getElementById('status');
+const sendBtn = document.getElementById('sendBtn');
+
+// Initialize Yjs document and array
 const ydoc = new Y.Doc();
 const messages = ydoc.getArray('messages');
 
-// FIXED: Provider with fallback (local sync if fails)
+// Connection management
 let provider;
-try {
-  provider = new WebsocketProvider('wss://demos.yjs.dev', ROOM, ydoc);
-  console.log('Connected to global sync server');
-} catch (e) {
-  console.warn('Sync server fallback to local:', e);
-  provider = null;
+let connectionAttempts = 0;
+const MAX_ATTEMPTS = 3;
+
+// Try multiple signaling servers for better reliability
+const SIGNALING_SERVERS = [
+  'wss://demos.yjs.dev',
+  'wss://y-webrtc-signaling-eu.herokuapp.com',
+  'wss://y-webrtc-signaling-us.herokuapp.com'
+];
+
+// Function to connect to a signaling server
+function connectToSignalingServer(serverIndex = 0) {
+  if (serverIndex >= SIGNALING_SERVERS.length) {
+    console.error('All signaling servers failed');
+    updateConnectionStatus('disconnected', 'Failed to connect to any signaling server');
+    return;
+  }
+  
+  const server = SIGNALING_SERVERS[serverIndex];
+  console.log(`Attempting to connect to: ${server}`);
+  
+  try {
+    provider = new WebsocketProvider(server, ROOM, ydoc);
+    
+    provider.on('status', event => {
+      console.log('Connection status:', event.status);
+      
+      switch (event.status) {
+        case 'connected':
+          updateConnectionStatus('connected', `Connected to ${server}`);
+          connectionAttempts = 0;
+          break;
+        case 'connecting':
+          updateConnectionStatus('connecting', `Connecting to ${server}...`);
+          break;
+        case 'disconnected':
+          updateConnectionStatus('disconnected', `Disconnected from ${server}`);
+          // Try next server after a delay
+          setTimeout(() => {
+            if (connectionAttempts < MAX_ATTEMPTS) {
+              connectionAttempts++;
+              connectToSignalingServer(serverIndex + 1);
+            }
+          }, 2000);
+          break;
+      }
+    });
+    
+    // Handle synchronization events
+    provider.on('sync', isSynced => {
+      if (isSynced) {
+        console.log('Document synced with peers');
+        updateStatus('Synced with peers');
+      }
+    });
+    
+  } catch (error) {
+    console.error(`Failed to connect to ${server}:`, error);
+    // Try next server
+    setTimeout(() => connectToSignalingServer(serverIndex + 1), 1000);
+  }
+}
+
+// Start connection process
+connectToSignalingServer();
+
+// Update connection status display
+function updateConnectionStatus(status, message) {
+  connectionStatus.textContent = message;
+  connectionStatus.className = `connection-status ${status}`;
+  
+  // Update send button state
+  sendBtn.disabled = status !== 'connected';
+  
+  // Update status display
+  if (status === 'connected') {
+    statusDiv.textContent = 'Status: Connected (global sync active)';
+    statusDiv.className = 'status success';
+  } else if (status === 'connecting') {
+    statusDiv.textContent = 'Status: Connecting...';
+    statusDiv.className = 'status warning';
+  } else {
+    statusDiv.textContent = 'Status: Disconnected (local only)';
+    statusDiv.className = 'status error';
+  }
+}
+
+// Update general status display
+function updateStatus(message) {
+  statusDiv.textContent = `Status: ${message}`;
 }
 
 const messagesDiv = document.getElementById('messages');
 const peersDiv = document.getElementById('peers');
 
-// FIXED: Global send function (no ReferenceError)
+// Global send function
 window.send = function() {
   const name = document.getElementById('name').value.trim();
   const text = document.getElementById('msg').value.trim();
-  if (!text) return alert('Add a message!');
+  
+  if (!text) {
+    alert('Please add a message!');
+    return;
+  }
+  
+  // Add message to Yjs array
   messages.push([{
     name: name || 'Anonymous',
     text,
     time: Date.now()
   }]);
+  
+  // Clear input
   document.getElementById('msg').value = '';
 };
 
 // Render messages (consistent across peers)
 function render() {
   messagesDiv.innerHTML = '';
+  
+  // Show newest messages first
   [...messages].reverse().forEach(item => {
     const div = document.createElement('div');
     div.className = 'msg';
@@ -73,15 +184,18 @@ function render() {
                      <span class="time">${new Date(item.time).toLocaleString()}</span>`;
     messagesDiv.prepend(div);
   });
-  // Peer status (global consistent)
-  if (provider && provider.ws && provider.ws.readyState === 1) {
-    peersDiv.textContent = `Peers online: Connected (global sync active)`;
+  
+  // Update peer count if provider exists
+  if (provider && provider.awareness) {
+    const states = Array.from(provider.awareness.getStates().keys());
+    const peerCount = states.length;
+    peersDiv.textContent = `Peers online: ${peerCount}`;
   } else {
-    peersDiv.textContent = `Peers online: Local sync (persists forever, syncs on reconnect)`;
+    peersDiv.textContent = `Peers online: Local only`;
   }
 }
 
-// Live sync — new messages appear instantly for all peers/devices
+// Observe changes to messages array
 messages.observe(render);
 
 // Enter key to send
@@ -92,19 +206,39 @@ document.getElementById('msg').addEventListener('keypress', e => {
   }
 });
 
-// Initial render + welcome
+// Initial render
 render();
+
+// Add welcome message
 const welcome = document.createElement('div');
 welcome.className = 'msg';
 welcome.style.color = '#0a0';
-welcome.innerHTML = 'Connected globally. You are now a peer node. Messages sync real-time across all users/devices.';
+welcome.innerHTML = 'Welcome to the P2P Live Guestbook! Messages sync in real-time across all users and devices.';
 messagesDiv.prepend(welcome);
 
+// Utility function to escape HTML
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
+
+// Handle page visibility changes to reconnect if needed
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && provider && provider.ws && provider.ws.readyState !== 1) {
+    console.log('Page visible again, checking connection...');
+    // Try to reconnect if we're visible again and not connected
+    connectToSignalingServer();
+  }
+});
+
+// Periodically check connection status
+setInterval(() => {
+  if (provider && provider.ws && provider.ws.readyState !== 1) {
+    updateConnectionStatus('disconnected', 'Connection lost - attempting to reconnect');
+    connectToSignalingServer();
+  }
+}, 10000); // Check every 10 seconds
 </script>
 </body>
 </html>
