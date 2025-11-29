@@ -2,301 +2,90 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>P2P Live Guestbook – Global Sync, Forever Persistent (Working ESM, 2025)</title>
-<link rel="icon" href="data:;base64,iVBORw0KGgo=">
+<title>P2P Guestbook - No Server Required</title>
 <style>
   body {font-family:system-ui;background:#000;color:#0f0;padding:30px;margin:0;}
   input,textarea,button{width:100%;padding:12px;margin:10px 0;background:#111;color:#0f0;border:2px solid #0f0;font-size:16px;box-sizing:border-box;}
   button{background:#0f0;color:#000;font-weight:bold;cursor:pointer;}
-  button:disabled{background:#333;color:#666;cursor:not-allowed;}
   .msg{border:1px solid #0f0;padding:10px;margin:10px 0;background:#001100;}
-  .name{font-weight:bold;}
-  .time{font-size:12px;color:#0a0;}
-  #peers{position:fixed;top:10px;right:10px;background:#000;border:1px solid #0f0;padding:8px;border-radius:4px;}
-  .status{position:fixed;top:50px;right:10px;background:#000;border:1px solid #0f0;padding:8px;border-radius:4px;}
-  .connection-status {margin:10px 0;padding:8px;border-radius:4px;}
-  .connection-status.connected {background:#001100;border:1px solid #0f0;}
-  .connection-status.disconnected {background:#110000;border:1px solid #f00;}
-  .connection-status.connecting {background:#111100;border:1px solid #ff0;}
-  .server-list {margin:10px 0;padding:10px;background:#111;border:1px solid #0f0;}
+  .peers{position:fixed;top:10px;right:10px;background:#000;border:1px solid #0f0;padding:8px;}
 </style>
 </head>
 <body>
 
-<h1>P2P Live Guestbook – Global Sync Across Devices/Users</h1>
-<p>Type → press Enter → message syncs instantly to ALL peers worldwide. Data persists forever.</p>
+<h1>P2P Guestbook - Direct Peer Connections</h1>
+<p>No server required! Uses WebRTC for direct peer-to-peer connections.</p>
 
-<div class="connection-status" id="connectionStatus">Initializing connection...</div>
-
-<div class="server-list">
-  <strong>Available Sync Servers:</strong>
-  <div id="serverStatus">Testing servers...</div>
-</div>
-
-<input type="text" id="name" placeholder="Your name (optional)" value="Visitor">
-<textarea id="msg" rows="3" placeholder="Your message – syncs live everywhere"></textarea>
-<button id="sendBtn" onclick="send()">Send Message</button>
+<input type="text" id="name" placeholder="Your name" value="Visitor">
+<textarea id="msg" rows="3" placeholder="Your message"></textarea>
+<button onclick="send()">Send Message</button>
 
 <div id="messages"></div>
-<div class="status" id="status">Status: Initializing...</div>
 <div class="peers" id="peers">Peers: 0</div>
 
 <script type="module">
 import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@14.0.0-14/+esm';
-import { WebsocketProvider } from 'https://cdn.jsdelivr.net/npm/y-websocket@3.0.0/+esm';
+import { WebrtcProvider } from 'https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/+esm';
 
-// Unique room name
-const ROOM = "global-guestbook-2025-v6";
+const ROOM = "p2p-guestbook-room-2025";
 
-// DOM elements
-const connectionStatus = document.getElementById('connectionStatus');
-const statusDiv = document.getElementById('status');
-const peersDiv = document.getElementById('peers');
-const sendBtn = document.getElementById('sendBtn');
-const messagesDiv = document.getElementById('messages');
-const serverStatusDiv = document.getElementById('serverStatus');
-
-// Initialize Yjs
+// Create Yjs document
 const ydoc = new Y.Doc();
 const messages = ydoc.getArray('messages');
 
-// Available signaling servers with priorities
-const SIGNALING_SERVERS = [
-  { 
-    url: 'wss://y-webrtc-signaling-eu.herokuapp.com', 
-    name: 'Europe Signaling Server',
-    priority: 1
-  },
-  { 
-    url: 'wss://y-webrtc-signaling-us.herokuapp.com', 
-    name: 'US Signaling Server', 
-    priority: 2 
-  },
-  { 
-    url: 'wss://demos.yjs.dev', 
-    name: 'Yjs Demos Server', 
-    priority: 3 
-  },
-  {
-    url: 'ws://localhost:1234',
-    name: 'Local Development Server',
-    priority: 4
+// Connect via WebRTC (P2P)
+const provider = new WebrtcProvider(ROOM, ydoc, {
+  signaling: [
+    'wss://y-webrtc-signaling-eu.herokuapp.com',
+    'wss://y-webrtc-signaling-us.herokuapp.com',
+    'wss://signaling.yjs.dev'
+  ],
+  password: null,
+  awareness: {
+    // Share cursor positions, etc.
+    name: 'Guestbook User'
   }
-];
+});
 
-let provider = null;
-let currentServerIndex = 0;
-let isConnected = false;
+// UI elements
+const messagesDiv = document.getElementById('messages');
+const peersDiv = document.getElementById('peers');
 
-// Test and connect to the best available server
-async function connectToBestServer() {
-  updateConnectionStatus('connecting', 'Testing available servers...');
-  
-  // Test each server
-  const serverTests = SIGNALING_SERVERS.map(async (server, index) => {
-    return await testServer(server, index);
-  });
-  
-  const results = await Promise.all(serverTests);
-  const workingServers = results.filter(result => result.works);
-  
-  if (workingServers.length > 0) {
-    // Sort by priority and connect to the best one
-    workingServers.sort((a, b) => a.server.priority - b.server.priority);
-    connectToServer(workingServers[0].server, workingServers[0].index);
-  } else {
-    // No servers available, use local storage only
-    updateConnectionStatus('disconnected', 'No remote servers available - using local storage only');
-    setupLocalOnly();
-  }
-}
-
-// Test if a server is reachable
-function testServer(server, index) {
-  return new Promise((resolve) => {
-    const testWebSocket = new WebSocket(server.url);
-    let timeoutId = setTimeout(() => {
-      testWebSocket.close();
-      updateServerStatus(server.name, '❌ Failed (timeout)');
-      resolve({ server, index, works: false });
-    }, 3000);
-    
-    testWebSocket.onopen = () => {
-      clearTimeout(timeoutId);
-      testWebSocket.close();
-      updateServerStatus(server.name, '✅ Connected');
-      resolve({ server, index, works: true });
-    };
-    
-    testWebSocket.onerror = () => {
-      clearTimeout(timeoutId);
-      updateServerStatus(server.name, '❌ Failed');
-      resolve({ server, index, works: false });
-    };
-  });
-}
-
-// Update server status display
-function updateServerStatus(serverName, status) {
-  const existing = serverStatusDiv.querySelector(`[data-server="${serverName}"]`);
-  if (existing) {
-    existing.textContent = `${serverName}: ${status}`;
-  } else {
-    const div = document.createElement('div');
-    div.setAttribute('data-server', serverName);
-    div.textContent = `${serverName}: ${status}`;
-    serverStatusDiv.appendChild(div);
-  }
-}
-
-// Connect to a specific server
-function connectToServer(server, index) {
-  currentServerIndex = index;
-  
-  try {
-    provider = new WebsocketProvider(server.url, ROOM, ydoc);
-    
-    provider.on('status', event => {
-      console.log(`Connection status for ${server.name}:`, event.status);
-      
-      switch (event.status) {
-        case 'connected':
-          isConnected = true;
-          updateConnectionStatus('connected', `Connected to ${server.name}`);
-          sendBtn.disabled = false;
-          break;
-        case 'connecting':
-          updateConnectionStatus('connecting', `Connecting to ${server.name}...`);
-          break;
-        case 'disconnected':
-          isConnected = false;
-          updateConnectionStatus('disconnected', `Disconnected from ${server.name}`);
-          sendBtn.disabled = true;
-          // Try next server after delay
-          setTimeout(() => tryNextServer(), 2000);
-          break;
-      }
-    });
-    
-    provider.on('sync', isSynced => {
-      if (isSynced) {
-        updateStatus(`Synced with ${server.name}`);
-      }
-    });
-    
-    // Update peer count
-    provider.awareness.on('change', () => {
-      updatePeerCount();
-    });
-    
-  } catch (error) {
-    console.error(`Failed to connect to ${server.name}:`, error);
-    updateServerStatus(server.name, '❌ Connection failed');
-    tryNextServer();
-  }
-}
-
-// Try the next available server
-function tryNextServer() {
-  currentServerIndex = (currentServerIndex + 1) % SIGNALING_SERVERS.length;
-  if (currentServerIndex === 0) {
-    // We've tried all servers, wait longer before retrying
-    setTimeout(() => connectToBestServer(), 5000);
-  } else {
-    connectToServer(SIGNALING_SERVERS[currentServerIndex], currentServerIndex);
-  }
-}
-
-// Setup local-only mode (IndexedDB persistence)
-function setupLocalOnly() {
-  updateStatus('Local mode - data persists in browser');
-  sendBtn.disabled = false;
-  
-  // Load from localStorage as fallback
-  try {
-    const saved = localStorage.getItem(ROOM);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      parsed.forEach(msg => {
-        if (!messages.some(m => m.time === msg.time && m.text === msg.text)) {
-          messages.push([msg]);
-        }
-      });
-    }
-  } catch (e) {
-    console.log('No previous local data found');
-  }
-}
-
-// Update connection status
-function updateConnectionStatus(status, message) {
-  connectionStatus.textContent = message;
-  connectionStatus.className = `connection-status ${status}`;
-}
-
-// Update general status
-function updateStatus(message) {
-  statusDiv.textContent = `Status: ${message}`;
-}
-
-// Update peer count
-function updatePeerCount() {
-  if (provider && provider.awareness) {
-    const states = Array.from(provider.awareness.getStates().keys());
-    peersDiv.textContent = `Peers: ${states.length}`;
-  } else {
-    peersDiv.textContent = `Peers: 0 (Local)`;
-  }
-}
-
-// Global send function
+// Send function
 window.send = function() {
   const name = document.getElementById('name').value.trim();
   const text = document.getElementById('msg').value.trim();
+  if (!text) return alert('Add a message!');
   
-  if (!text) {
-    alert('Please add a message!');
-    return;
-  }
-  
-  const newMessage = {
+  messages.push([{
     name: name || 'Anonymous',
     text,
     time: Date.now()
-  };
-  
-  // Add to Yjs array
-  messages.push([newMessage]);
-  
-  // Also save to localStorage as backup
-  try {
-    const existing = JSON.parse(localStorage.getItem(ROOM) || '[]');
-    existing.push(newMessage);
-    localStorage.setItem(ROOM, JSON.stringify(existing));
-  } catch (e) {
-    console.warn('Could not save to localStorage');
-  }
-  
+  }]);
   document.getElementById('msg').value = '';
 };
 
 // Render messages
 function render() {
   messagesDiv.innerHTML = '';
-  
   [...messages].reverse().forEach(item => {
     const div = document.createElement('div');
     div.className = 'msg';
-    div.innerHTML = `<span class="name">${escapeHtml(item.name || 'Anonymous')}</span>: ${escapeHtml(item.text)}<br>
-                     <span class="time">${new Date(item.time).toLocaleString()}</span>`;
+    div.innerHTML = `<strong>${escapeHtml(item.name)}</strong>: ${escapeHtml(item.text)}<br>
+                     <small>${new Date(item.time).toLocaleString()}</small>`;
     messagesDiv.appendChild(div);
   });
 }
 
-// Observe changes to messages
-messages.observe(render);
+// Update peer count
+function updatePeers() {
+  const states = Array.from(provider.awareness.getStates().keys());
+  peersDiv.textContent = `Peers: ${states.length}`;
+}
 
-// Enter key handler
+// Event listeners
+messages.observe(render);
+provider.awareness.on('change', updatePeers);
 document.getElementById('msg').addEventListener('keypress', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -304,32 +93,15 @@ document.getElementById('msg').addEventListener('keypress', e => {
   }
 });
 
-// Utility function
+// Initial setup
+render();
+updatePeers();
+
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
-
-// Initial render
-render();
-
-// Add welcome message
-const welcome = document.createElement('div');
-welcome.className = 'msg';
-welcome.style.color = '#0a0';
-welcome.innerHTML = 'Welcome! Messages will sync across all connected users in real-time.';
-messagesDiv.prepend(welcome);
-
-// Start connection process
-connectToBestServer();
-
-// Manual reconnect button
-const reconnectBtn = document.createElement('button');
-reconnectBtn.textContent = 'Reconnect to Servers';
-reconnectBtn.onclick = connectToBestServer;
-reconnectBtn.style.marginTop = '10px';
-document.querySelector('.server-list').appendChild(reconnectBtn);
 </script>
 </body>
 </html>
