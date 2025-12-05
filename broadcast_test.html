@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Simple Video Broadcast - No PeerJS Needed</title>
+    <title>Video Broadcast - Fixed Version</title>
     <style>
         * {
             margin: 0;
@@ -35,10 +35,9 @@
             gap: 20px;
             margin-bottom: 30px;
             flex-wrap: wrap;
+            justify-content: center;
         }
         .mode-btn {
-            flex: 1;
-            min-width: 200px;
             padding: 25px;
             background: rgba(255, 255, 255, 0.15);
             border: 2px solid rgba(255, 255, 255, 0.3);
@@ -48,6 +47,7 @@
             cursor: pointer;
             transition: all 0.3s;
             text-align: center;
+            min-width: 280px;
         }
         .mode-btn:hover {
             background: rgba(255, 255, 255, 0.25);
@@ -183,15 +183,6 @@
             font-family: monospace;
             word-break: break-all;
         }
-        .viewer-count {
-            display: inline-block;
-            background: #e74c3c;
-            color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 14px;
-            margin-left: 10px;
-        }
         .chat-area {
             height: 200px;
             overflow-y: auto;
@@ -223,11 +214,11 @@
             </div>
             
             <div class="mode-selector">
-                <div class="mode-btn active" onclick="selectMode('broadcaster')">
+                <div class="mode-btn active" id="broadcasterBtn">
                     <h3>🎤 I Want to Broadcast</h3>
                     <p>Stream your camera to others</p>
                 </div>
-                <div class="mode-btn" onclick="selectMode('viewer')">
+                <div class="mode-btn" id="viewerBtn">
                     <h3>👁️ I Want to Watch</h3>
                     <p>Watch someone's broadcast</p>
                 </div>
@@ -350,7 +341,6 @@
                 this.isCameraOn = true;
                 this.isMicOn = true;
                 this.isScreenSharing = false;
-                this.viewers = [];
                 
                 this.init();
             }
@@ -361,22 +351,31 @@
                 if (saved) {
                     document.getElementById('username').value = saved;
                 }
+                
+                // Setup mode button click handlers
+                document.getElementById('broadcasterBtn').addEventListener('click', () => {
+                    this.selectMode('broadcaster');
+                });
+                
+                document.getElementById('viewerBtn').addEventListener('click', () => {
+                    this.selectMode('viewer');
+                });
             }
             
             selectMode(mode) {
                 this.mode = mode;
                 
-                // Update UI
+                // Update UI - FIXED: Use proper element selection
                 document.querySelectorAll('.mode-btn').forEach(btn => {
                     btn.classList.remove('active');
                 });
-                event.currentTarget.classList.add('active');
                 
-                // Show appropriate setup
                 if (mode === 'broadcaster') {
+                    document.getElementById('broadcasterBtn').classList.add('active');
                     document.getElementById('broadcasterSetup').classList.remove('hidden');
                     document.getElementById('viewerSetup').classList.add('hidden');
                 } else {
+                    document.getElementById('viewerBtn').classList.add('active');
                     document.getElementById('broadcasterSetup').classList.add('hidden');
                     document.getElementById('viewerSetup').classList.remove('hidden');
                 }
@@ -833,7 +832,6 @@
         const broadcast = new SimpleVideoBroadcast();
         
         // Global functions
-        window.selectMode = (mode) => broadcast.selectMode(mode);
         window.startBroadcaster = () => broadcast.startBroadcaster();
         window.startViewer = () => broadcast.startViewer();
         window.acceptViewerResponse = () => broadcast.acceptViewerResponse();
@@ -864,9 +862,6 @@
                     broadcast.sendChatMessage();
                 }
             });
-            
-            // Auto-select broadcaster mode
-            broadcast.selectMode('broadcaster');
         });
     </script>
 </body>
