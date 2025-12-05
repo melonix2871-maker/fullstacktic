@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Pages P2P Chat</title>
+    <style>
+        :root {
+            --primary: #238636;
+            --primary-dark: #1c6b2b;
+            --bg: #0d1117;
+            --surface: #161b22;
+            --text: #c9d1d9;
+            --text-secondary: #8b949e;
+            --border: #30363d;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: var(--surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        header {
+            padding: 24px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+        .subtitle {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+        }
+        .setup {
+            padding: 32px;
+            border-bottom: 1px solid var(--border);
+        }
+        .setup h2 {
+            margin-bottom: 20px;
+            color: var(--text);
+            font-size: 20px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        input, select {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 16px;
+            transition: border 0.2s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(35, 134, 54, 0.2);
+        }
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            width: 100%;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background: var(--primary-dark);
+        }
+        .btn:disabled {
+            background: #30363d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .chat-ui {
+            display: none;
+        }
+        .chat-header {
+            padding: 20px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f85149;
+        }
+        .status-dot.connected {
+            background: #3fb950;
+            animation: pulse 2s infinite;
+        }
+        .chat-area {
+            height: 400px;
+            overflow-y: auto;
+            padding: 20px;
+            background: var(--bg);
+        }
+        .message {
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 80%;
+            animation: slideIn 0.3s ease;
+        }
+        .message.local {
+            background: var(--primary);
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+        .message.remote {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 4px;
+        }
+        .message.system {
+            background: rgba(56, 139, 253, 0.1);
+            border: 1px solid rgba(56, 139, 253, 0.3);
+            max-width: 100%;
+            text-align: center;
+            font-style: italic;
+            color: #79c0ff;
+        }
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            font-size: 12px;
+            opacity: 0.8;
+        }
+        .input-area {
+            padding: 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+        }
+        #messageInput {
+            flex: 1;
+            padding: 12px 16px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 16px;
+        }
+        #sendBtn {
+            padding: 12px 24px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .info-box {
+            background: rgba(56, 139, 253, 0.1);
+            border: 1px solid rgba(56, 139, 253, 0.3);
+            border-radius: 6px;
+            padding: 16px;
+            margin: 20px;
+            font-size: 14px;
+        }
+        .info-box h3 {
+            margin-bottom: 8px;
+            color: #79c0ff;
+        }
+        .info-box ul {
+            padding-left: 20px;
+            color: var(--text-secondary);
+        }
+        .info-box li {
+            margin-bottom: 4px;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌐 GitHub Pages P2P Chat</h1>
+            <div class="subtitle">Serverless • Decentralized • No Sign-up</div>
+        </header>
+        
+        <div class="info-box">
+            <h3>⚠️ How This Works on GitHub Pages</h3>
+            <ul>
+                <li>Uses <strong>WebRTC</strong> for direct peer-to-peer connections</li>
+                <li>Needs <strong>Signaling Server</strong> to connect peers</li>
+                <li>GitHub Pages is static - we'll use free public signaling servers</li>
+                <li>Works between browsers, but needs public signaling initially</li>
+            </ul>
+        </div>
+        
+        <div class="setup" id="setup">
+            <h2>Join Chat Room</h2>
+            <div class="input-group">
+                <label for="username">Your Name</label>
+                <input type="text" id="username" placeholder="Enter your name" value="GitHubUser">
+            </div>
+            <div class="input-group">
+                <label for="room">Room ID</label>
+                <input type="text" id="room" placeholder="Enter room name" value="github-chat">
+            </div>
+            <div class="input-group">
+                <label for="signaling">Signaling Server</label>
+                <select id="signaling">
+                    <option value="public">Public Signaling Server (Free)</option>
+                    <option value="manual">Manual Connection (Copy-Paste)</option>
+                    <option value="local">Local Testing</option>
+                </select>
+            </div>
+            <button class="btn" onclick="joinRoom()">Join Chat Room</button>
+        </div>
+        
+        <div class="chat-ui" id="chatUI">
+            <div class="chat-header">
+                <div class="connection-status">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Connecting...</span>
+                </div>
+                <div id="roomInfo">Room: github-chat</div>
+                <button class="btn" onclick="leaveRoom()" style="padding: 8px 16px; font-size: 14px;">
+                    Leave Room
+                </button>
+            </div>
+            
+            <div class="chat-area" id="chatArea"></div>
+            
+            <div class="input-area">
+                <input type="text" id="messageInput" placeholder="Type your message..." disabled>
+                <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class GitHubPagesChat {
+            constructor() {
+                this.peer = null;
+                this.connections = new Map();
+                this.username = 'GitHubUser';
+                this.roomId = 'github-chat';
+                this.signalingType = 'public';
+                this.signalingServer = null;
+                this.peerId = null;
+            }
+
+            async joinRoom() {
+                this.username = document.getElementById('username').value || 'GitHubUser';
+                this.roomId = document.getElementById('room').value || 'github-chat';
+                this.signalingType = document.getElementById('signaling').value;
+                
+                // Update UI
+                document.getElementById('setup').style.display = 'none';
+                document.getElementById('chatUI').style.display = 'block';
+                document.getElementById('roomInfo').textContent = `Room: ${this.roomId}`;
+                this.updateStatus('Connecting...', false);
+                
+                try {
+                    // Choose signaling method based on selection
+                    switch(this.signalingType) {
+                        case 'public':
+                            await this.usePublicSignaling();
+                            break;
+                        case 'manual':
+                            await this.useManualSignaling();
+                            break;
+                        case 'local':
+                            await this.useLocalSignaling();
+                            break;
+                    }
+                    
+                    this.addSystemMessage(`Welcome ${this.username}! Joined room: ${this.roomId}`);
+                    this.enableChat(true);
+                    
+                } catch (error) {
+                    console.error('Failed to connect:', error);
+                    this.addSystemMessage(`Connection failed: ${error.message}`);
+                    this.updateStatus('Disconnected', false);
+                }
+            }
+
+            async usePublicSignaling() {
+                // Use a public WebSocket signaling server
+                // Note: These are public servers - anyone can see your connection data
+                const publicServers = [
+                    'wss://signaling1.y-webrtc.org',
+                    'wss://signaling2.y-webrtc.org',
+                    'wss://signaling3.y-webrtc.org'
+                ];
+                
+                for (const server of publicServers) {
+                    try {
+                        await this.connectViaWebSocket(server);
+                        this.updateStatus(`Connected via ${new URL(server).hostname}`, true);
+                        return;
+                    } catch (error) {
+                        console.log(`Failed with ${server}:`, error.message);
+                    }
+                }
+                
+                throw new Error('All public signaling servers failed');
+            }
+
+            async connectViaWebSocket(wsUrl) {
+                return new Promise((resolve, reject) => {
+                    this.ws = new WebSocket(wsUrl);
+                    
+                    this.ws.onopen = () => {
+                        console.log('Connected to signaling server');
+                        this.ws.send(JSON.stringify({
+                            type: 'join',
+                            room: this.roomId,
+                            username: this.username
+                        }));
+                        resolve();
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+                        this.handleSignalingMessage(data);
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                        reject(error);
+                    };
+                    
+                    this.ws.onclose = () => {
+                        this.updateStatus('Disconnected from signaling', false);
+                    };
+                    
+                    // Timeout after 10 seconds
+                    setTimeout(() => reject(new Error('Connection timeout')), 10000);
+                });
+            }
+
+            async useManualSignaling() {
+                // Manual signaling using copy-paste
+                this.addSystemMessage('Manual Mode: Share connection data manually');
+                
+                // Generate unique peer ID
+                this.peerId = `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                
+                // Show connection data
+                const connectionData = btoa(JSON.stringify({
+                    type: 'manual_join',
+                    peerId: this.peerId,
+                    username: this.username,
+                    room: this.roomId
+                }));
+                
+                this.addSystemMessage('Your connection code (copy this):');
+                this.addSystemMessage(connectionData);
+                
+                // Prompt for other peer's code
+                const otherCode = prompt('Enter other peer\'s connection code:');
+                if (otherCode) {
+                    try {
+                        const otherData = JSON.parse(atob(otherCode));
+                        await this.connectToPeer(otherData.peerId, otherData);
+                    } catch (error) {
+                        this.addSystemMessage('Invalid connection code');
+                    }
+                }
+                
+                this.updateStatus('Manual Mode - Waiting for peer', false);
+            }
+
+            async useLocalSignaling() {
+                // For local testing (same browser tabs)
+                this.addSystemMessage('Local Mode: Works in same browser tabs only');
+                
+                // Use BroadcastChannel for same-origin communication
+                if (typeof BroadcastChannel !== 'undefined') {
+                    this.channel = new BroadcastChannel(`p2p-chat-${this.roomId}`);
+                    
+                    this.channel.onmessage = (event) => {
+                        const data = event.data;
+                        if (data.type === 'join' && data.peerId !== this.peerId) {
+                            this.connectToPeer(data.peerId, data);
+                        }
+                        if (data.type === 'message') {
+                            this.addMessage(data.text, data.username, false);
+                        }
+                    };
+                    
+                    this.peerId = `local_${Date.now()}`;
+                    
+                    // Announce presence
+                    this.channel.postMessage({
+                        type: 'join',
+                        peerId: this.peerId,
+                        username: this.username,
+                        room: this.roomId
+                    });
+                    
+                    this.updateStatus('Local Mode - Ready', true);
+                } else {
+                    this.addSystemMessage('BroadcastChannel not supported in this browser');
+                    this.updateStatus('Local Mode Failed', false);
+                }
+            }
+
+            handleSignalingMessage(data) {
+                switch(data.type) {
+                    case 'peer_joined':
+                        this.addSystemMessage(`${data.username} joined the room`);
+                        this.connectToPeer(data.peerId, data);
+                        break;
+                        
+                    case 'offer':
+                        this.handleOffer(data);
+                        break;
+                        
+                    case 'answer':
+                        this.handleAnswer(data);
+                        break;
+                        
+                    case 'ice_candidate':
+                        this.handleIceCandidate(data);
+                        break;
+                }
+            }
+
+            async connectToPeer(peerId, peerData) {
+                // Create WebRTC connection
+                const pc = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun2.l.google.com:19302' }
+                    ]
+                });
+                
+                // Create data channel
+                const dc = pc.createDataChannel('chat', {
+                    ordered: true
+                });
+                
+                this.setupDataChannel(dc, peerId, peerData.username);
+                
+                // Handle ICE candidates
+                pc.onicecandidate = (event) => {
+                    if (event.candidate && this.ws) {
+                        this.ws.send(JSON.stringify({
+                            type: 'ice_candidate',
+                            target: peerId,
+                            candidate: event.candidate
+                        }));
+                    }
+                };
+                
+                // Create and send offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                if (this.ws) {
+                    this.ws.send(JSON.stringify({
+                        type: 'offer',
+                        target: peerId,
+                        offer: offer
+                    }));
+                }
+                
+                this.connections.set(peerId, { pc, dc, username: peerData.username });
+                this.updatePeerCount();
+            }
+
+            async handleOffer(data) {
+                const pc = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' }
+                    ]
+                });
+                
+                pc.ondatachannel = (event) => {
+                    const dc = event.channel;
+                    this.setupDataChannel(dc, data.from, data.username);
+                    this.connections.set(data.from, { pc, dc, username: data.username });
+                    this.updatePeerCount();
+                };
+                
+                pc.onicecandidate = (event) => {
+                    if (event.candidate && this.ws) {
+                        this.ws.send(JSON.stringify({
+                            type: 'ice_candidate',
+                            target: data.from,
+                            candidate: event.candidate
+                        }));
+                    }
+                };
+                
+                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                
+                if (this.ws) {
+                    this.ws.send(JSON.stringify({
+                        type: 'answer',
+                        target: data.from,
+                        answer: answer
+                    }));
+                }
+            }
+
+            handleAnswer(data) {
+                const conn = this.connections.get(data.from);
+                if (conn) {
+                    conn.pc.setRemoteDescription(new RTCSessionDescription(data.answer))
+                        .catch(console.error);
+                }
+            }
+
+            handleIceCandidate(data) {
+                const conn = this.connections.get(data.from);
+                if (conn) {
+                    conn.pc.addIceCandidate(new RTCIceCandidate(data.candidate))
+                        .catch(console.error);
+                }
+            }
+
+            setupDataChannel(dc, peerId, peerUsername) {
+                dc.onopen = () => {
+                    this.addSystemMessage(`Connected to ${peerUsername}`);
+                    this.updateStatus('Connected to peer(s)', true);
+                    
+                    // Send welcome
+                    dc.send(JSON.stringify({
+                        type: 'welcome',
+                        from: this.username
+                    }));
+                };
+                
+                dc.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        switch(data.type) {
+                            case 'chat':
+                                this.addMessage(data.text, data.from, false);
+                                break;
+                            case 'welcome':
+                                this.addSystemMessage(`${data.from} says hello`);
+                                break;
+                        }
+                    } catch (error) {
+                        console.error('Failed to parse message:', error);
+                    }
+                };
+                
+                dc.onclose = () => {
+                    const conn = this.connections.get(peerId);
+                    if (conn) {
+                        this.addSystemMessage(`${conn.username} disconnected`);
+                        this.connections.delete(peerId);
+                        this.updatePeerCount();
+                    }
+                };
+            }
+
+            sendMessage() {
+                const input = document.getElementById('messageInput');
+                const text = input.value.trim();
+                
+                if (!text) return;
+                
+                // Display locally
+                this.addMessage(text, this.username, true);
+                
+                // Send to all connected peers
+                const message = JSON.stringify({
+                    type: 'chat',
+                    text: text,
+                    from: this.username,
+                    timestamp: Date.now()
+                });
+                
+                for (const [peerId, conn] of this.connections) {
+                    if (conn.dc && conn.dc.readyState === 'open') {
+                        conn.dc.send(message);
+                    }
+                }
+                
+                // Clear input
+                input.value = '';
+                input.focus();
+            }
+
+            addMessage(text, sender, isLocal) {
+                const chatArea = document.getElementById('chatArea');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${isLocal ? 'local' : 'remote'}`;
+                
+                const time = new Date().toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+                
+                messageDiv.innerHTML = `
+                    <div class="message-header">
+                        <span>${sender}</span>
+                        <span>${time}</span>
+                    </div>
+                    <div>${this.escapeHtml(text)}</div>
+                `;
+                
+                chatArea.appendChild(messageDiv);
+                chatArea.scrollTop = chatArea.scrollHeight;
+            }
+
+            addSystemMessage(text) {
+                const chatArea = document.getElementById('chatArea');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message system';
+                messageDiv.textContent = text;
+                chatArea.appendChild(messageDiv);
+                chatArea.scrollTop = chatArea.scrollHeight;
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            updateStatus(text, connected) {
+                const statusDot = document.getElementById('statusDot');
+                const statusText = document.getElementById('statusText');
+                
+                statusText.textContent = text;
+                statusDot.className = 'status-dot' + (connected ? ' connected' : '');
+            }
+
+            updatePeerCount() {
+                const count = this.connections.size;
+                if (count > 0) {
+                    this.updateStatus(`Connected to ${count} peer${count !== 1 ? 's' : ''}`, true);
+                }
+            }
+
+            enableChat(enabled) {
+                const input = document.getElementById('messageInput');
+                const button = document.getElementById('sendBtn');
+                
+                input.disabled = !enabled;
+                button.disabled = !enabled;
+                
+                if (enabled) {
+                    input.placeholder = 'Type your message...';
+                    input.focus();
+                }
+            }
+
+            leaveRoom() {
+                // Close all connections
+                if (this.ws) {
+                    this.ws.close();
+                }
+                
+                if (this.channel) {
+                    this.channel.close();
+                }
+                
+                this.connections.forEach(conn => {
+                    conn.dc?.close();
+                    conn.pc?.close();
+                });
+                
+                // Reset UI
+                document.getElementById('setup').style.display = 'block';
+                document.getElementById('chatUI').style.display = 'none';
+                document.getElementById('chatArea').innerHTML = '';
+                
+                this.connections.clear();
+            }
+        }
+
+        // Initialize chat
+        const chat = new GitHubPagesChat();
+        
+        // Global functions
+        window.joinRoom = () => chat.joinRoom();
+        window.sendMessage = () => chat.sendMessage();
+        window.leaveRoom = () => chat.leaveRoom();
+        
+        // Handle Enter key
+        document.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('messageInput');
+            if (input) {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        sendMessage();
+                    }
+                });
+            }
+            
+            // Auto-select signaling based on URL
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('room')) {
+                document.getElementById('room').value = urlParams.get('room');
+            }
+            if (urlParams.has('manual')) {
+                document.getElementById('signaling').value = 'manual';
+            }
+        });
+    </script>
+</body>
+</html>
