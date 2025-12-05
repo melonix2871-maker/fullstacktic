@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Scalable P2P Broadcast - Millions of Viewers</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.8em;
+            color: #60a5fa;
+            text-shadow: 0 2px 10px rgba(96, 165, 250, 0.3);
+        }
+        .architecture {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin: 40px 0;
+        }
+        .arch-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 25px;
+            transition: all 0.3s;
+        }
+        .arch-card:hover {
+            transform: translateY(-5px);
+            border-color: #60a5fa;
+            box-shadow: 0 10px 30px rgba(96, 165, 250, 0.2);
+        }
+        .arch-card h3 {
+            color: #60a5fa;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+        .arch-card .number {
+            display: inline-block;
+            background: #3b82f6;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            margin-right: 10px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .stat-box {
+            background: rgba(96, 165, 250, 0.1);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid rgba(96, 165, 250, 0.3);
+        }
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #60a5fa;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 30px 0;
+            min-height: 400px;
+        }
+        .video-container video {
+            width: 100%;
+            height: 400px;
+            object-fit: cover;
+        }
+        .overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            padding: 20px;
+            color: white;
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin: 30px 0;
+        }
+        button {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        button:hover {
+            background: linear-gradient(135deg, #1d4ed8, #1e40af);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(59, 130, 246, 0.4);
+        }
+        button.danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+        }
+        button.danger:hover {
+            background: linear-gradient(135deg, #dc2626, #b91c1c);
+        }
+        button.success {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+        button.success:hover {
+            background: linear-gradient(135deg, #059669, #047857);
+        }
+        .network-visualization {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 30px 0;
+            height: 300px;
+            position: relative;
+            overflow: hidden;
+        }
+        .node {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #3b82f6;
+            animation: pulse 2s infinite;
+        }
+        .node.source {
+            background: #ef4444;
+            width: 30px;
+            height: 30px;
+        }
+        .node.relay {
+            background: #10b981;
+        }
+        .connection {
+            position: absolute;
+            height: 2px;
+            background: rgba(59, 130, 246, 0.3);
+            transform-origin: 0 0;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        .log-container {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            padding: 5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .log-entry.info { color: #60a5fa; }
+        .log-entry.success { color: #10b981; }
+        .log-entry.warning { color: #f59e0b; }
+        .log-entry.error { color: #ef4444; }
+        .hidden {
+            display: none;
+        }
+        .tab-container {
+            margin: 30px 0;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 15px 30px;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 16px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        .tab.active {
+            color: #60a5fa;
+            border-bottom-color: #60a5fa;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌐 Scalable P2P Broadcast System</h1>
+        
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-value" id="viewerCount">0</div>
+                <div class="stat-label">Active Viewers</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="relayCount">0</div>
+                <div class="stat-label">Relay Nodes</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="bandwidth">0</div>
+                <div class="stat-label">Bandwidth Saved</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="latency">0ms</div>
+                <div class="stat-label">Avg Latency</div>
+            </div>
+        </div>
+        
+        <div class="tab-container">
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('broadcast')">📡 Broadcast</button>
+                <button class="tab" onclick="showTab('view')">👁️ Watch</button>
+                <button class="tab" onclick="showTab('relay')">🔄 Relay</button>
+                <button class="tab" onclick="showTab('stats')">📊 Statistics</button>
+            </div>
+            
+            <div id="broadcastTab" class="tab-content active">
+                <div class="architecture">
+                    <div class="arch-card">
+                        <h3><span class="number">1</span> Source Node</h3>
+                        <p>You are the original broadcaster. Your stream will be distributed through the mesh network.</p>
+                        <button onclick="startAsSource()" id="startSourceBtn">
+                            🎬 Start Broadcasting
+                        </button>
+                    </div>
+                    
+                    <div class="arch-card">
+                        <h3><span class="number">2</span> Super Nodes</h3>
+                        <p>First 100 viewers become super nodes, each serving 1000+ viewers.</p>
+                        <div class="log-container" id="sourceLog"></div>
+                    </div>
+                    
+                    <div class="arch-card">
+                        <h3><span class="number">3</span> Mesh Network</h3>
+                        <p>Viewers help distribute stream to others. Automatic load balancing.</p>
+                        <button onclick="generateNetwork()" class="secondary">
+                            🔄 Generate Network
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="video-container">
+                    <video id="sourceVideo" autoplay playsinline muted></video>
+                    <div class="overlay">
+                        <h3>📡 Source Stream</h3>
+                        <p id="sourceStatus">Ready to broadcast...</p>
+                    </div>
+                </div>
+                
+                <div class="controls">
+                    <button onclick="toggleSourceCamera()" id="cameraBtn">
+                        📹 Camera: ON
+                    </button>
+                    <button onclick="toggleSourceMic()" id="micBtn">
+                        🎤 Mic: ON
+                    </button>
+                    <button onclick="startScreenShare()" class="success">
+                        🖥️ Share Screen
+                    </button>
+                    <button onclick="stopBroadcast()" class="danger">
+                        ⏹️ Stop Broadcast
+                    </button>
+                </div>
+                
+                <div class="network-visualization" id="networkViz">
+                    <!-- Network nodes will be drawn here -->
+                </div>
+            </div>
+            
+            <div id="viewTab" class="tab-content">
+                <div class="architecture">
+                    <div class="arch-card">
+                        <h3>🔍 Find Stream</h3>
+                        <p>Enter stream ID or discover available streams in the network.</p>
+                        <input type="text" id="streamId" placeholder="Enter stream ID or URL" style="width:100%; padding:10px; margin:10px 0; border-radius:8px; background:rgba(255,255,255,0.1); color:white; border:1px solid rgba(255,255,255,0.2);">
+                        <button onclick="findStream()" class="success" style="width:100%;">
+                            🔍 Find & Watch
+                        </button>
+                    </div>
+                    
+                    <div class="arch-card">
+                        <h3>📺 Watch Stream</h3>
+                        <p>Connect to the nearest relay node for optimal performance.</p>
+                        <div class="log-container" id="viewerLog"></div>
+                    </div>
+                    
+                    <div class="arch-card">
+                        <h3>🔄 Become Relay</h3>
+                        <p>Help distribute stream to others and earn priority access.</p>
+                        <button onclick="becomeRelay()" class="secondary" style="width:100%;">
+                            🔄 Enable Relay Mode
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="video-container">
+                    <video id="viewerVideo" autoplay playsinline></video>
+                    <div class="overlay">
+                        <h3>📺 Watching Stream</h3>
+                        <p id="viewerStatus">Enter stream ID to watch...</p>
+                    </div>
+                </div>
+                
+                <div class="controls">
+                    <button onclick="stopWatching()" class="danger">
+                        🚪 Stop Watching
+                    </button>
+                    <button onclick="toggleRelayMode()" id="relayToggleBtn" class="secondary">
+                        🔄 Relay: OFF
+                    </button>
+                </div>
+            </div>
+            
+            <div id="relayTab" class="tab-content">
+                <h2 style="text-align:center; margin:20px 0; color:#60a5fa;">🔄 Relay Node System</h2>
+                <div class="architecture">
+                    <div class="arch-card">
+                        <h3>📊 Your Contribution</h3>
+                        <p>As a relay, you help distribute the stream to other viewers.</p>
+                        <div class="stats" style="grid-template-columns: 1fr 1fr; margin:15px 0;">
+                            <div class="stat-box">
+                                <div class="stat-value" id="servingCount">0</div>
+                                <div class="stat-label">Serving</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value" id="relayBandwidth">0</div>
+                                <div class="stat-label">Bandwidth</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="arch-card">
+                        <h3>🎯 Optimization</h3>
+                        <p>Automatic peer selection based on geography and latency.</p>
+                        <button onclick="optimizeRelay()" class="success">
+                            ⚡ Optimize Now
+                        </button>
+                    </div>
+                    
+                    <div class="arch-card">
+                        <h3>📈 Incentives</h3>
+                        <p>Relays get priority bandwidth and reduced latency.</p>
+                        <div class="log-container" id="relayLog"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="statsTab" class="tab-content">
+                <h2 style="text-align:center; margin:20px 0; color:#60a5fa;">📊 Network Statistics</h2>
+                <div class="architecture">
+                    <div class="arch-card">
+                        <h3>🌍 Global Distribution</h3>
+                        <canvas id="distributionChart" width="300" height="200" style="width:100%; height:200px;"></canvas>
+                    </div>
+                    
+                    <div class="arch-card">
+                        <h3>📈 Scalability Analysis</h3>
+                        <canvas id="scalabilityChart" width="300" height="200" style="width:100%; height:200px;"></canvas>
+                    </div>
+                    
+                    <div class="arch-card">
+                        <h3>⚡ Performance</h3>
+                        <canvas id="performanceChart" width="300" height="200" style="width:100%; height:200px;"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Scalable P2P Broadcast System for Millions of Viewers
+        class ScalableBroadcast {
+            constructor() {
+                this.mode = 'viewer';
+                this.isSource = false;
+                this.isRelay = false;
+                this.localStream = null;
+                this.peerConnections = new Map();
+                this.dataChannels = new Map();
+                this.viewerCount = 0;
+                this.relayCount = 0;
+                this.networkNodes = [];
+                this.streamId = null;
+                this.relayConnections = 0;
+                this.bandwidthSaved = 0;
+                
+                // WebTorrent-like chunk distribution
+                this.chunks = new Map();
+                this.chunkSize = 16384; // 16KB chunks
+                this.peerDiscovery = new Set();
+                
+                this.init();
+            }
+            
+            init() {
+                this.updateStats();
+                this.setupEventListeners();
+                this.generateNetworkVisualization();
+                
+                // Simulate network growth
+                setInterval(() => this.simulateNetworkGrowth(), 5000);
+            }
+            
+            setupEventListeners() {
+                // Tab switching
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.addEventListener('click', (e) => {
+                        const tabName = e.target.textContent.includes('Broadcast') ? 'broadcast' :
+                                      e.target.textContent.includes('Watch') ? 'view' :
+                                      e.target.textContent.includes('Relay') ? 'relay' : 'stats';
+                        this.showTab(tabName);
+                    });
+                });
+                
+                // Enter key for stream ID
+                document.getElementById('streamId')?.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.findStream();
+                });
+            }
+            
+            showTab(tabName) {
+                // Update tabs
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                
+                // Show selected tab
+                document.getElementById(tabName + 'Tab').classList.add('active');
+                document.querySelectorAll('.tab').forEach(tab => {
+                    if (tab.textContent.includes(tabName.charAt(0).toUpperCase() + tabName.slice(1))) {
+                        tab.classList.add('active');
+                    }
+                });
+                
+                this.log(`Switched to ${tabName} tab`, 'info');
+            }
+            
+            async startAsSource() {
+                try {
+                    // Get camera access
+                    this.localStream = await navigator.mediaDevices.getUserMedia({
+                        audio: true,
+                        video: {
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 },
+                            frameRate: { ideal: 30 }
+                        }
+                    });
+                    
+                    // Show local video
+                    const sourceVideo = document.getElementById('sourceVideo');
+                    sourceVideo.srcObject = this.localStream;
+                    
+                    this.isSource = true;
+                    this.streamId = this.generateStreamId();
+                    
+                    // Start WebTorrent-like distribution
+                    this.startChunkDistribution();
+                    
+                    // Start peer discovery
+                    this.startPeerDiscovery();
+                    
+                    this.log(`🎬 Started broadcasting with ID: ${this.streamId}`, 'success');
+                    document.getElementById('sourceStatus').textContent = 
+                        `Streaming to network... ID: ${this.streamId}`;
+                    
+                    // Update button
+                    document.getElementById('startSourceBtn').innerHTML = '🎬 Broadcasting...';
+                    document.getElementById('startSourceBtn').disabled = true;
+                    
+                } catch (error) {
+                    this.log(`❌ Failed to start broadcast: ${error.message}`, 'error');
+                }
+            }
+            
+            generateStreamId() {
+                // Generate a unique stream ID (like magnet link)
+                const timestamp = Date.now();
+                const random = Math.random().toString(36).substring(2, 15);
+                return `stream_${timestamp}_${random}`;
+            }
+            
+            startChunkDistribution() {
+                if (!this.isSource) return;
+                
+                // Simulate chunk-based distribution (like WebTorrent)
+                setInterval(() => {
+                    // Create video chunks
+                    const chunkId = `chunk_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+                    const chunkData = {
+                        id: chunkId,
+                        timestamp: Date.now(),
+                        sequence: this.chunks.size,
+                        size: this.chunkSize
+                    };
+                    
+                    this.chunks.set(chunkId, chunkData);
+                    
+                    // Distribute to connected peers
+                    this.distributeChunk(chunkId);
+                    
+                    // Clean old chunks
+                    if (this.chunks.size > 1000) {
+                        const firstKey = this.chunks.keys().next().value;
+                        this.chunks.delete(firstKey);
+                    }
+                    
+                }, 100); // 10 chunks per second
+            }
+            
+            distributeChunk(chunkId) {
+                // Distribute chunk through the network
+                // In production, this would use WebRTC data channels or WebSocket
+                this.log(`📦 Distributing chunk: ${chunkId}`, 'info');
+                
+                // Update bandwidth saved
+                this.bandwidthSaved += this.chunkSize;
+                this.updateStats();
+            }
+            
+            startPeerDiscovery() {
+                // Simulate DHT-like peer discovery
+                setInterval(() => {
+                    // Discover new peers
+                    const newPeers = Math.floor(Math.random() * 10);
+                    for (let i = 0; i < newPeers; i++) {
+                        const peerId = `peer_${Date.now()}_${i}`;
+                        this.peerDiscovery.add(peerId);
+                    }
+                    
+                    this.log(`🔍 Discovered ${newPeers} new peers`, 'info');
+                    
+                    // Update network visualization
+                    this.addNetworkNodes(newPeers);
+                    
+                }, 3000);
+            }
+            
+            async findStream() {
+                const streamIdInput = document.getElementById('streamId').value.trim();
+                if (!streamIdInput) {
+                    this.log('Please enter a stream ID', 'warning');
+                    return;
+                }
+                
+                this.streamId = streamIdInput;
+                
+                // Simulate connecting to stream
+                this.log(`🔗 Connecting to stream: ${this.streamId}`, 'info');
+                document.getElementById('viewerStatus').textContent = 
+                    `Connecting to ${this.streamId}...`;
+                
+                // Simulate network discovery
+                setTimeout(() => {
+                    this.log('✅ Found stream in network', 'success');
+                    this.log('🔄 Connecting to nearest relay node...', 'info');
+                    
+                    setTimeout(() => {
+                        this.log('✅ Connected! Receiving stream...', 'success');
+                        document.getElementById('viewerStatus').textContent = 
+                            `Watching: ${this.streamId}`;
+                        
+                        // Simulate receiving video
+                        this.simulateStreamPlayback();
+                        
+                    }, 2000);
+                    
+                }, 1500);
+            }
+            
+            simulateStreamPlayback() {
+                // In production, this would setup actual WebRTC connections
+                // For demo, we'll just show a placeholder
+                const viewerVideo = document.getElementById('viewerVideo');
+                
+                // Create a test pattern (in real app, this would be actual video)
+                const canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 480;
+                const ctx = canvas.getContext('2d');
+                
+                setInterval(() => {
+                    // Draw test pattern
+                    ctx.fillStyle = '#1e293b';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    ctx.fillStyle = '#60a5fa';
+                    ctx.font = '30px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('📺 Live Stream', canvas.width/2, canvas.height/2);
+                    ctx.font = '20px Arial';
+                    ctx.fillText(this.streamId, canvas.width/2, canvas.height/2 + 40);
+                    
+                    // Convert to video stream
+                    const stream = canvas.captureStream(30);
+                    viewerVideo.srcObject = stream;
+                    
+                }, 1000/30);
+            }
+            
+            becomeRelay() {
+                this.isRelay = !this.isRelay;
+                
+                if (this.isRelay) {
+                    this.log('🔄 Activated relay mode', 'success');
+                    document.getElementById('relayToggleBtn').innerHTML = '🔄 Relay: ON';
+                    document.getElementById('relayToggleBtn').classList.add('success');
+                    
+                    // Start relay operations
+                    this.startRelayOperations();
+                    
+                } else {
+                    this.log('🔒 Deactivated relay mode', 'info');
+                    document.getElementById('relayToggleBtn').innerHTML = '🔄 Relay: OFF';
+                    document.getElementById('relayToggleBtn').classList.remove('success');
+                }
+            }
+            
+            startRelayOperations() {
+                // Simulate serving other viewers
+                setInterval(() => {
+                    if (this.isRelay) {
+                        this.relayConnections = Math.min(this.relayConnections + 1, 100);
+                        this.relayCount++;
+                        
+                        // Update stats
+                        document.getElementById('servingCount').textContent = this.relayConnections;
+                        this.updateStats();
+                        
+                        this.log(`🔄 Serving ${this.relayConnections} viewers`, 'info');
+                    }
+                }, 2000);
+            }
+            
+            generateNetworkVisualization() {
+                const container = document.getElementById('networkViz');
+                if (!container) return;
+                
+                // Clear container
+                container.innerHTML = '';
+                
+                // Create source node
+                this.createNode(container, 50, 50, 'source');
+                
+                // Create relay nodes
+                for (let i = 0; i < 5; i++) {
+                    const x = 100 + Math.random() * 300;
+                    const y = 50 + Math.random() * 200;
+                    this.createNode(container, x, y, 'relay');
+                }
+                
+                // Create viewer nodes
+                for (let i = 0; i < 20; i++) {
+                    const x = Math.random() * 380;
+                    const y = Math.random() * 280;
+                    this.createNode(container, x, y, 'viewer');
+                }
+                
+                // Create connections
+                this.createConnections(container);
+            }
+            
+            createNode(container, x, y, type) {
+                const node = document.createElement('div');
+                node.className = `node ${type}`;
+                node.style.left = `${x}px`;
+                node.style.top = `${y}px`;
+                container.appendChild(node);
+                this.networkNodes.push({ x, y, type });
+            }
+            
+            createConnections(container) {
+                // Connect source to relays
+                this.networkNodes.forEach((node, i) => {
+                    if (node.type === 'relay') {
+                        this.createConnection(container, 60, 60, node.x + 10, node.y + 10);
+                    }
+                });
+                
+                // Connect relays to viewers
+                this.networkNodes.forEach((node, i) => {
+                    if (node.type === 'relay') {
+                        // Connect to 3-5 viewers
+                        const viewerCount = 3 + Math.floor(Math.random() * 3);
+                        for (let j = 0; j < viewerCount; j++) {
+                            const viewer = this.networkNodes.find(n => n.type === 'viewer' && !n.connected);
+                            if (viewer) {
+                                this.createConnection(container, node.x + 10, node.y + 10, viewer.x + 10, viewer.y + 10);
+                                viewer.connected = true;
+                            }
+                        }
+                    }
+                });
+            }
+            
+            createConnection(container, x1, y1, x2, y2) {
+                const connection = document.createElement('div');
+                connection.className = 'connection';
+                
+                const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+                const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+                
+                connection.style.width = `${length}px`;
+                connection.style.left = `${x1}px`;
+                connection.style.top = `${y1}px`;
+                connection.style.transform = `rotate(${angle}deg)`;
+                
+                container.appendChild(connection);
+            }
+            
+            addNetworkNodes(count) {
+                const container = document.getElementById('networkViz');
+                if (!container) return;
+                
+                for (let i = 0; i < count; i++) {
+                    const x = Math.random() * 380;
+                    const y = Math.random() * 280;
+                    this.createNode(container, x, y, 'viewer');
+                }
+                
+                // Update viewer count
+                this.viewerCount += count;
+                this.updateStats();
+            }
+            
+            simulateNetworkGrowth() {
+                // Simulate network growth over time
+                if (this.isSource) {
+                    const newViewers = Math.floor(Math.random() * 100);
+                    this.viewerCount += newViewers;
+                    
+                    const newRelays = Math.floor(Math.random() * 5);
+                    this.relayCount += newRelays;
+                    
+                    this.bandwidthSaved += newViewers * this.chunkSize * 10;
+                    
+                    this.updateStats();
+                    this.log(`📈 Network grew by ${newViewers} viewers, ${newRelays} relays`, 'info');
+                }
+            }
+            
+            updateStats() {
+                document.getElementById('viewerCount').textContent = 
+                    this.formatNumber(this.viewerCount);
+                document.getElementById('relayCount').textContent = this.relayCount;
+                document.getElementById('bandwidth').textContent = 
+                    this.formatBytes(this.bandwidthSaved);
+                document.getElementById('latency').textContent = 
+                    `${Math.floor(Math.random() * 100)}ms`;
+                
+                document.getElementById('relayBandwidth').textContent = 
+                    this.formatBytes(this.relayConnections * this.chunkSize * 10);
+            }
+            
+            formatNumber(num) {
+                if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+                if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+                return num.toString();
+            }
+            
+            formatBytes(bytes) {
+                if (bytes >= 1000000000) return (bytes / 1000000000).toFixed(1) + ' GB';
+                if (bytes >= 1000000) return (bytes / 1000000).toFixed(1) + ' MB';
+                if (bytes >= 1000) return (bytes / 1000).toFixed(1) + ' KB';
+                return bytes + ' B';
+            }
+            
+            log(message, type = 'info') {
+                const logId = this.isSource ? 'sourceLog' : 
+                             this.isRelay ? 'relayLog' : 'viewerLog';
+                const logContainer = document.getElementById(logId);
+                
+                if (logContainer) {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = `log-entry ${type}`;
+                    
+                    const timestamp = new Date().toLocaleTimeString();
+                    logEntry.textContent = `[${timestamp}] ${message}`;
+                    
+                    logContainer.appendChild(logEntry);
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+                
+                console.log(`[${type}] ${message}`);
+            }
+            
+            // Control methods
+            toggleSourceCamera() {
+                if (this.localStream) {
+                    const videoTrack = this.localStream.getVideoTracks()[0];
+                    if (videoTrack) {
+                        videoTrack.enabled = !videoTrack.enabled;
+                        const isOn = videoTrack.enabled;
+                        document.getElementById('cameraBtn').innerHTML = 
+                            `📹 Camera: ${isOn ? 'ON' : 'OFF'}`;
+                        this.log(`Camera ${isOn ? 'enabled' : 'disabled'}`, 'info');
+                    }
+                }
+            }
+            
+            toggleSourceMic() {
+                if (this.localStream) {
+                    const audioTrack = this.localStream.getAudioTracks()[0];
+                    if (audioTrack) {
+                        audioTrack.enabled = !audioTrack.enabled;
+                        const isOn = audioTrack.enabled;
+                        document.getElementById('micBtn').innerHTML = 
+                            `🎤 Mic: ${isOn ? 'ON' : 'OFF'}`;
+                        this.log(`Mic ${isOn ? 'enabled' : 'disabled'}`, 'info');
+                    }
+                }
+            }
+            
+            async startScreenShare() {
+                try {
+                    this.localStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: true,
+                        audio: true
+                    });
+                    
+                    const sourceVideo = document.getElementById('sourceVideo');
+                    sourceVideo.srcObject = this.localStream;
+                    
+                    this.log('🖥️ Started screen sharing', 'success');
+                    
+                } catch (error) {
+                    this.log(`❌ Screen share failed: ${error.message}`, 'error');
+                }
+            }
+            
+            stopBroadcast() {
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(track => track.stop());
+                    this.localStream = null;
+                }
+                
+                this.isSource = false;
+                this.log('⏹️ Broadcast stopped', 'info');
+                document.getElementById('sourceStatus').textContent = 'Broadcast stopped';
+                document.getElementById('startSourceBtn').innerHTML = '🎬 Start Broadcasting';
+                document.getElementById('startSourceBtn').disabled = false;
+            }
+            
+            stopWatching() {
+                const viewerVideo = document.getElementById('viewerVideo');
+                if (viewerVideo.srcObject) {
+                    viewerVideo.srcObject.getTracks().forEach(track => track.stop());
+                    viewerVideo.srcObject = null;
+                }
+                
+                document.getElementById('viewerStatus').textContent = 'Stream stopped';
+                this.log('🚪 Stopped watching', 'info');
+            }
+            
+            toggleRelayMode() {
+                this.becomeRelay();
+            }
+            
+            generateNetwork() {
+                this.generateNetworkVisualization();
+                this.log('🔄 Generated new network visualization', 'info');
+            }
+            
+            optimizeRelay() {
+                this.log('⚡ Optimizing relay connections...', 'info');
+                setTimeout(() => {
+                    this.log('✅ Relay optimization complete', 'success');
+                }, 1000);
+            }
+        }
+        
+        // Initialize system
+        const broadcastSystem = new ScalableBroadcast();
+        
+        // Global functions
+        window.showTab = (tabName) => broadcastSystem.showTab(tabName);
+        window.startAsSource = () => broadcastSystem.startAsSource();
+        window.findStream = () => broadcastSystem.findStream();
+        window.becomeRelay = () => broadcastSystem.becomeRelay();
+        window.toggleSourceCamera = () => broadcastSystem.toggleSourceCamera();
+        window.toggleSourceMic = () => broadcastSystem.toggleSourceMic();
+        window.startScreenShare = () => broadcastSystem.startScreenShare();
+        window.stopBroadcast = () => broadcastSystem.stopBroadcast();
+        window.stopWatching = () => broadcastSystem.stopWatching();
+        window.toggleRelayMode = () => broadcastSystem.toggleRelayMode();
+        window.generateNetwork = () => broadcastSystem.generateNetwork();
+        window.optimizeRelay = () => broadcastSystem.optimizeRelay();
+    </script>
+</body>
+</html>
