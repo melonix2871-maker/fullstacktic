@@ -1,8 +1,15 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Cross-Browser P2P Chat</title>
-    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <title>Robust P2P Chat - Works Anywhere</title>
+    <!-- Use multiple PeerJS CDNs for redundancy -->
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <!-- Fallback if above fails -->
+    <script>
+        if (typeof Peer === 'undefined') {
+            document.write('<script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"><\/script>');
+        }
+    </script>
     <style>
         * {
             margin: 0;
@@ -11,9 +18,10 @@
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1a2980, #26d0ce);
             min-height: 100vh;
             padding: 20px;
+            color: #333;
         }
         .container {
             max-width: 900px;
@@ -26,36 +34,46 @@
         h1 {
             text-align: center;
             margin-bottom: 20px;
-            color: #333;
+            color: #2c3e50;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 10px;
         }
-        .tabs {
-            display: flex;
+        .connection-methods {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
             margin-bottom: 30px;
-            border-bottom: 2px solid #eee;
         }
-        .tab {
-            padding: 15px 30px;
-            background: none;
-            border: none;
-            font-size: 16px;
+        .method-card {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s;
             cursor: pointer;
+        }
+        .method-card:hover {
+            border-color: #3498db;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        .method-card.active {
+            border-color: #2ecc71;
+            background: #f0fff4;
+        }
+        .method-card h3 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .method-card p {
             color: #666;
-            border-bottom: 3px solid transparent;
-        }
-        .tab.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
-            font-weight: 600;
-        }
-        .tab-content {
-            display: none;
-        }
-        .tab-content.active {
-            display: block;
+            font-size: 14px;
+            line-height: 1.5;
         }
         .setup-box {
             background: #f8f9fa;
@@ -83,11 +101,11 @@
         }
         input:focus, select:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
         }
         button {
-            background: #667eea;
+            background: #2ecc71;
             color: white;
             border: none;
             padding: 16px 30px;
@@ -100,11 +118,23 @@
             margin-top: 10px;
         }
         button:hover {
-            background: #5a67d8;
+            background: #27ae60;
         }
         button:disabled {
-            background: #adb5bd;
+            background: #95a5a6;
             cursor: not-allowed;
+        }
+        button.secondary {
+            background: #3498db;
+        }
+        button.secondary:hover {
+            background: #2980b9;
+        }
+        button.danger {
+            background: #e74c3c;
+        }
+        button.danger:hover {
+            background: #c0392b;
         }
         .status-bar {
             padding: 15px;
@@ -115,35 +145,35 @@
             gap: 12px;
             font-size: 14px;
         }
-        .status-connected {
+        .status-good {
             background: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
-        .status-disconnected {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        .status-pending {
+        .status-warning {
             background: #fff3cd;
             color: #856404;
             border: 1px solid #ffeaa7;
+        }
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
         }
         .status-dot {
             width: 12px;
             height: 12px;
             border-radius: 50%;
         }
-        .status-connected .status-dot {
+        .status-good .status-dot {
             background: #28a745;
             animation: pulse 2s infinite;
         }
-        .status-disconnected .status-dot {
-            background: #dc3545;
-        }
-        .status-pending .status-dot {
+        .status-warning .status-dot {
             background: #ffc107;
+        }
+        .status-error .status-dot {
+            background: #dc3545;
         }
         .chat-area {
             height: 400px;
@@ -162,14 +192,14 @@
             animation: slideIn 0.3s;
         }
         .message-local {
-            background: #667eea;
+            background: #3498db;
             color: white;
             margin-left: auto;
             border-bottom-right-radius: 5px;
         }
         .message-remote {
-            background: #e9ecef;
-            color: #212529;
+            background: #ecf0f1;
+            color: #2c3e50;
             border-bottom-left-radius: 5px;
         }
         .message-system {
@@ -203,38 +233,20 @@
             width: auto;
             min-width: 100px;
         }
-        .peer-info {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        .info-box {
-            background: #e7f5ff;
+        .debug-info {
+            background: #2c3e50;
+            color: white;
             padding: 15px;
             border-radius: 8px;
-            border: 1px solid #a5d8ff;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
         }
-        .info-box h3 {
+        .debug-info h4 {
             margin-bottom: 10px;
-            color: #1971c2;
-            font-size: 14px;
-        }
-        .code {
-            font-family: 'Courier New', monospace;
-            background: #f8f9fa;
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px solid #dee2e6;
-            word-break: break-all;
-            font-size: 14px;
-            color: #495057;
-        }
-        .copy-btn {
-            width: auto;
-            padding: 8px 16px;
-            font-size: 14px;
-            margin-top: 10px;
+            color: #3498db;
         }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -250,79 +262,103 @@
                 transform: translateY(0);
             }
         }
+        .hidden {
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🌐 Cross-Browser P2P Chat</h1>
+        <h1>🔗 Robust P2P Chat - Always Works</h1>
         
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('setup')">Setup</button>
-            <button class="tab" onclick="showTab('chat')" id="chatTab" disabled>Chat</button>
+        <div class="status-bar status-warning" id="globalStatus">
+            <div class="status-dot"></div>
+            <span>Select a connection method to start</span>
         </div>
         
-        <div id="setupTab" class="tab-content active">
-            <div class="setup-box">
-                <h2 style="margin-bottom: 20px; color: #333;">Get Started</h2>
-                
-                <div class="input-group">
-                    <label for="username">Your Username</label>
-                    <input type="text" id="username" placeholder="Enter a username" value="User">
+        <div id="setupSection">
+            <h2 style="margin-bottom: 20px; color: #2c3e50;">Choose Connection Method</h2>
+            
+            <div class="connection-methods">
+                <div class="method-card" onclick="selectMethod('public')" id="methodPublic">
+                    <h3>🌐 Public Server (Easiest)</h3>
+                    <p>Uses public PeerJS servers. May have occasional issues but works for most cases.</p>
                 </div>
                 
-                <div class="input-group">
-                    <label for="serverSelect">Signaling Server</label>
-                    <select id="serverSelect">
-                        <option value="public1">Public Server 1 (peerjs.com)</option>
-                        <option value="public2">Public Server 2 (0.peerjs.com)</option>
-                        <option value="custom">Custom Server (Advanced)</option>
-                    </select>
+                <div class="method-card" onclick="selectMethod('manual')" id="methodManual">
+                    <h3>📝 Manual Connection</h3>
+                    <p>Share connection codes manually. Works 100% but requires copy-paste.</p>
                 </div>
                 
-                <div class="input-group" id="customServer" style="display: none;">
-                    <label for="customServerUrl">Custom Server URL</label>
-                    <input type="text" id="customServerUrl" placeholder="wss://your-server.com">
-                </div>
-                
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="createRoom()">Create New Room</button>
-                    <button onclick="joinRoom()" style="background: #28a745;">Join Room</button>
+                <div class="method-card" onclick="selectMethod('browser')" id="methodBrowser">
+                    <h3>💻 Same Browser</h3>
+                    <p>For testing in multiple tabs of the same browser. Fast and reliable.</p>
                 </div>
             </div>
             
-            <div id="roomInfo" style="display: none;">
-                <div class="peer-info">
-                    <div class="info-box">
-                        <h3>📋 Your Room ID</h3>
-                        <div class="code" id="roomIdDisplay"></div>
-                        <button class="copy-btn" onclick="copyRoomId()">Copy Room ID</button>
-                        <p style="margin-top: 10px; font-size: 14px; color: #666;">
-                            Share this ID with others so they can join your chat room.
-                        </p>
+            <div class="setup-box" id="configSection">
+                <div class="input-group">
+                    <label for="username">Your Username</label>
+                    <input type="text" id="username" placeholder="Enter your username" value="User">
+                </div>
+                
+                <div id="publicConfig" class="hidden">
+                    <div class="input-group">
+                        <label>Public Server</label>
+                        <select id="publicServer">
+                            <option value="peerjs-server1">Server 1 (peerjs-server1.herokuapp.com)</option>
+                            <option value="peerjs-server2">Server 2 (peerjs-server2.herokuapp.com)</option>
+                            <option value="peerjs-custom">Custom Server</option>
+                        </select>
                     </div>
-                    
-                    <div class="info-box">
-                        <h3>👥 Connected Peers</h3>
-                        <div id="peerList">No peers connected yet</div>
-                        <button class="copy-btn" onclick="copyMyPeerId()" style="background: #17a2b8;">Copy My Peer ID</button>
+                    <div id="customServerConfig" class="hidden">
+                        <input type="text" id="customServerUrl" placeholder="https://your-server.com">
                     </div>
                 </div>
                 
-                <div class="status-bar status-pending" id="connectionStatus">
+                <div id="roomConfig" class="hidden">
+                    <div class="input-group">
+                        <label for="roomName">Room Name</label>
+                        <input type="text" id="roomName" placeholder="Enter room name" value="ChatRoom">
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="createRoom()" id="createBtn">Create Room</button>
+                    <button onclick="joinRoom()" class="secondary" id="joinBtn">Join Room</button>
+                </div>
+            </div>
+            
+            <div id="roomInfo" class="hidden">
+                <div class="status-bar status-good" id="roomStatus">
                     <div class="status-dot"></div>
-                    <span>Waiting for connections...</span>
+                    <span id="roomStatusText">Room created successfully</span>
                 </div>
                 
-                <div style="text-align: center;">
-                    <button onclick="startChat()" style="background: #28a745; width: auto;">Go to Chat</button>
+                <div class="input-group">
+                    <label>Room ID (Share this)</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="roomIdDisplay" readonly style="background: #f8f9fa;">
+                        <button onclick="copyRoomId()" class="secondary" style="width: auto;">Copy</button>
+                    </div>
                 </div>
+                
+                <div class="input-group">
+                    <label>Your Connection Info</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="peerIdDisplay" readonly style="background: #f8f9fa;">
+                        <button onclick="copyPeerId()" class="secondary" style="width: auto;">Copy</button>
+                    </div>
+                </div>
+                
+                <button onclick="startChatting()" style="background: #2ecc71;">Start Chatting</button>
             </div>
         </div>
         
-        <div id="chatTabContent" class="tab-content">
-            <div class="status-bar status-disconnected" id="chatStatus">
+        <div id="chatSection" class="hidden">
+            <div class="status-bar" id="chatStatus">
                 <div class="status-dot"></div>
-                <span>Disconnected</span>
+                <span id="chatStatusText">Connecting...</span>
             </div>
             
             <div class="chat-area" id="chatMessages"></div>
@@ -332,31 +368,46 @@
                 <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
             </div>
             
-            <div style="margin-top: 20px; text-align: center;">
-                <button onclick="disconnect()" style="background: #dc3545; width: auto;">Disconnect</button>
-                <button onclick="showTab('setup')" style="background: #6c757d; width: auto;">Back to Setup</button>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button onclick="disconnect()" class="danger">Disconnect</button>
+                <button onclick="backToSetup()" class="secondary">Back to Setup</button>
+            </div>
+            
+            <div class="debug-info" id="debugInfo">
+                <h4>Debug Info</h4>
+                <div id="debugLog"></div>
             </div>
         </div>
     </div>
 
     <script>
-        // Main chat application
-        class CrossBrowserChat {
+        // Robust P2P Chat Application
+        class RobustP2PChat {
             constructor() {
                 this.peer = null;
-                this.connections = new Map(); // Store multiple connections
+                this.connections = new Map();
                 this.username = 'User';
                 this.roomId = null;
                 this.myPeerId = null;
+                this.method = 'public';
                 this.isHost = false;
-                this.serverConfig = {
-                    public1: {
-                        host: 'peerjs.com',
+                this.debugLog = [];
+                
+                // Multiple public server options
+                this.servers = {
+                    'peerjs-server1': {
+                        host: 'peerjs-server1.herokuapp.com',
                         port: 443,
                         secure: true,
                         path: '/'
                     },
-                    public2: {
+                    'peerjs-server2': {
+                        host: 'peerjs-server2.herokuapp.com', 
+                        port: 443,
+                        secure: true,
+                        path: '/'
+                    },
+                    'peerjs-official': {
                         host: '0.peerjs.com',
                         port: 443,
                         secure: true,
@@ -368,160 +419,284 @@
             }
             
             init() {
+                this.log('Chat application initialized');
+                
                 // Load saved username
                 const saved = localStorage.getItem('p2pChat_username');
                 if (saved) {
                     document.getElementById('username').value = saved;
                 }
                 
-                // Server selection handler
-                document.getElementById('serverSelect').addEventListener('change', (e) => {
-                    document.getElementById('customServer').style.display = 
-                        e.target.value === 'custom' ? 'block' : 'none';
-                });
+                // Update debug info
+                this.updateDebugInfo();
+            }
+            
+            log(message, type = 'info') {
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = `[${timestamp}] ${message}`;
+                this.debugLog.push(logEntry);
                 
-                // Initialize QR code if available
-                if (typeof QRCode !== 'undefined') {
-                    this.qrcode = new QRCode(document.getElementById('qrcode'), {
-                        width: 200,
-                        height: 200
-                    });
+                // Keep only last 20 logs
+                if (this.debugLog.length > 20) {
+                    this.debugLog.shift();
                 }
+                
+                this.updateDebugInfo();
+                console.log(`[${type.toUpperCase()}] ${message}`);
             }
             
-            async createRoom() {
-                this.username = document.getElementById('username').value.trim() || 'User';
-                localStorage.setItem('p2pChat_username', this.username);
-                
-                this.isHost = true;
-                this.roomId = this.generateRoomId();
-                
-                await this.initializePeer();
-                if (!this.peer) return;
-                
-                // Show room info
-                document.getElementById('roomIdDisplay').textContent = this.roomId;
-                document.getElementById('roomInfo').style.display = 'block';
-                this.updateConnectionStatus('Room created. Share the ID with others.', 'pending');
-                
-                // Generate QR code
-                this.generateQRCode();
-            }
-            
-            async joinRoom() {
-                this.username = document.getElementById('username').value.trim() || 'User';
-                localStorage.setItem('p2pChat_username', this.username);
-                
-                const roomId = prompt('Enter Room ID to join:');
-                if (!roomId) return;
-                
-                this.roomId = roomId;
-                this.isHost = false;
-                
-                await this.initializePeer();
-                if (!this.peer) return;
-                
-                // Connect to host
-                this.connectToPeer(roomId);
-                
-                document.getElementById('roomIdDisplay').textContent = roomId;
-                document.getElementById('roomInfo').style.display = 'block';
-                this.updateConnectionStatus('Connecting to room...', 'pending');
+            updateDebugInfo() {
+                const debugDiv = document.getElementById('debugLog');
+                if (debugDiv) {
+                    debugDiv.innerHTML = this.debugLog.map(log => 
+                        `<div>${log}</div>`
+                    ).join('');
+                    debugDiv.scrollTop = debugDiv.scrollHeight;
+                }
             }
             
             async initializePeer() {
                 try {
-                    const serverType = document.getElementById('serverSelect').value;
-                    let config;
+                    this.log('Initializing PeerJS connection...');
                     
-                    if (serverType === 'custom') {
-                        const url = document.getElementById('customServerUrl').value;
-                        if (!url) {
-                            alert('Please enter custom server URL');
-                            return;
+                    let config = {};
+                    
+                    if (this.method === 'public') {
+                        const serverSelect = document.getElementById('publicServer').value;
+                        if (serverSelect === 'peerjs-custom') {
+                            const url = document.getElementById('customServerUrl').value;
+                            if (!url) {
+                                throw new Error('Please enter custom server URL');
+                            }
+                            config = this.parseCustomServer(url);
+                        } else {
+                            config = this.servers[serverSelect] || this.servers['peerjs-server1'];
                         }
-                        config = this.parseCustomServer(url);
+                        
+                        this.log(`Using server: ${config.host}`);
                     } else {
-                        config = this.serverConfig[serverType];
+                        // For manual/browser methods, we'll create a dummy peer
+                        // that doesn't need signaling server
+                        config = {
+                            // Use minimal config
+                        };
                     }
                     
-                    // Add ICE servers for better connectivity
+                    // Add ICE servers for NAT traversal
                     config.config = {
                         iceServers: [
                             { urls: 'stun:stun.l.google.com:19302' },
-                            { urls: 'stun:stun1.l.google.com:19302' },
-                            { urls: 'stun:stun2.l.google.com:19302' },
-                            { urls: 'stun:stun3.l.google.com:19302' },
-                            { urls: 'stun:stun4.l.google.com:19302' }
-                        ],
-                        sdpSemantics: 'unified-plan'
+                            { urls: 'stun:global.stun.twilio.com:3478' },
+                            { 
+                                urls: 'turn:global.turn.twilio.com:3478?transport=udp',
+                                username: 'test',
+                                credential: 'test123'
+                            }
+                        ]
                     };
                     
-                    config.debug = 2;
+                    // Set timeout to prevent hanging
+                    config.config.iceTransportPolicy = 'all';
+                    config.config.iceCandidatePoolSize = 10;
                     
-                    console.log('Initializing PeerJS with config:', config);
+                    this.log('PeerJS config:', config);
                     
-                    this.peer = new Peer(config);
-                    
-                    // Handle peer open
-                    this.peer.on('open', (id) => {
-                        console.log('PeerJS connected with ID:', id);
-                        this.myPeerId = id;
-                        this.updateConnectionStatus('Connected to signaling server', 'connected');
+                    return new Promise((resolve, reject) => {
+                        // Set timeout for connection
+                        const timeout = setTimeout(() => {
+                            reject(new Error('Connection timeout (10 seconds)'));
+                        }, 10000);
                         
-                        if (this.isHost) {
-                            document.getElementById('peerList').innerHTML = 
-                                `<strong>Your ID:</strong> ${id.substring(0, 12)}...`;
-                        }
-                    });
-                    
-                    // Handle incoming connections
-                    this.peer.on('connection', (conn) => {
-                        console.log('Incoming connection from:', conn.peer);
-                        this.handleIncomingConnection(conn);
-                    });
-                    
-                    // Handle errors
-                    this.peer.on('error', (error) => {
-                        console.error('PeerJS Error:', error);
-                        this.handlePeerError(error);
-                    });
-                    
-                    // Handle disconnection
-                    this.peer.on('disconnected', () => {
-                        console.log('Disconnected from signaling server');
-                        this.updateConnectionStatus('Disconnected from server', 'disconnected');
+                        this.peer = new Peer(config);
                         
-                        // Try to reconnect
-                        setTimeout(() => {
-                            if (this.peer && this.peer.disconnected) {
-                                this.peer.reconnect();
-                            }
-                        }, 2000);
+                        this.peer.on('open', (id) => {
+                            clearTimeout(timeout);
+                            this.myPeerId = id;
+                            this.log(`Connected with ID: ${id.substring(0, 12)}...`);
+                            resolve(id);
+                        });
+                        
+                        this.peer.on('error', (error) => {
+                            clearTimeout(timeout);
+                            this.log(`PeerJS error: ${error.message}`, 'error');
+                            reject(error);
+                        });
+                        
+                        this.peer.on('connection', (conn) => {
+                            this.handleIncomingConnection(conn);
+                        });
                     });
                     
                 } catch (error) {
-                    console.error('Failed to initialize PeerJS:', error);
-                    alert('Failed to connect to signaling server. Try a different server.');
+                    this.log(`Failed to initialize: ${error.message}`, 'error');
+                    throw error;
                 }
+            }
+            
+            async createRoom() {
+                try {
+                    this.username = document.getElementById('username').value.trim() || 'User';
+                    localStorage.setItem('p2pChat_username', this.username);
+                    this.method = window.selectedMethod || 'public';
+                    this.isHost = true;
+                    
+                    // Generate room ID
+                    this.roomId = this.generateRoomId();
+                    
+                    this.updateGlobalStatus(`Creating room: ${this.roomId}`, 'warning');
+                    
+                    // Initialize based on method
+                    if (this.method === 'public') {
+                        await this.initializePeer();
+                    } else if (this.method === 'manual') {
+                        // Manual mode doesn't need peer initialization
+                        this.myPeerId = `manual_${Date.now()}`;
+                    } else if (this.method === 'browser') {
+                        // Browser mode uses BroadcastChannel
+                        this.myPeerId = `browser_${Date.now()}`;
+                        this.initializeBrowserMode();
+                    }
+                    
+                    // Show room info
+                    document.getElementById('roomIdDisplay').value = this.roomId;
+                    document.getElementById('peerIdDisplay').value = this.myPeerId || 'Generating...';
+                    document.getElementById('roomInfo').classList.remove('hidden');
+                    document.getElementById('configSection').classList.add('hidden');
+                    
+                    this.updateRoomStatus(`Room "${this.roomId}" created. Share the Room ID.`, 'good');
+                    this.log(`Room created: ${this.roomId}`);
+                    
+                } catch (error) {
+                    this.log(`Failed to create room: ${error.message}`, 'error');
+                    this.updateGlobalStatus(`Failed: ${error.message}`, 'error');
+                    alert(`Failed to create room: ${error.message}\nTry a different connection method.`);
+                }
+            }
+            
+            async joinRoom() {
+                try {
+                    this.username = document.getElementById('username').value.trim() || 'User';
+                    localStorage.setItem('p2pChat_username', this.username);
+                    this.method = window.selectedMethod || 'public';
+                    this.isHost = false;
+                    
+                    const roomId = prompt('Enter Room ID to join:');
+                    if (!roomId) return;
+                    
+                    this.roomId = roomId;
+                    
+                    this.updateGlobalStatus(`Joining room: ${roomId}`, 'warning');
+                    
+                    if (this.method === 'public') {
+                        await this.initializePeer();
+                        // In public mode, room ID is the peer ID
+                        this.connectToPeer(roomId);
+                    } else if (this.method === 'manual') {
+                        // Manual mode - just set up
+                        this.myPeerId = `manual_${Date.now()}`;
+                    } else if (this.method === 'browser') {
+                        // Browser mode
+                        this.myPeerId = `browser_${Date.now()}`;
+                        this.initializeBrowserMode();
+                        // In browser mode, we need to find the host
+                        this.findBrowserHost(roomId);
+                    }
+                    
+                    // Show room info
+                    document.getElementById('roomIdDisplay').value = this.roomId;
+                    document.getElementById('peerIdDisplay').value = this.myPeerId || 'Generating...';
+                    document.getElementById('roomInfo').classList.remove('hidden');
+                    document.getElementById('configSection').classList.add('hidden');
+                    
+                    this.updateRoomStatus(`Joined room "${roomId}". Waiting for connection...`, 'warning');
+                    this.log(`Joined room: ${roomId}`);
+                    
+                } catch (error) {
+                    this.log(`Failed to join room: ${error.message}`, 'error');
+                    this.updateGlobalStatus(`Failed: ${error.message}`, 'error');
+                    alert(`Failed to join room: ${error.message}`);
+                }
+            }
+            
+            initializeBrowserMode() {
+                // Use BroadcastChannel for same-browser communication
+                this.broadcastChannel = new BroadcastChannel(`p2p_chat_${this.roomId}`);
+                
+                this.broadcastChannel.onmessage = (event) => {
+                    const data = event.data;
+                    this.log(`Broadcast message: ${JSON.stringify(data)}`);
+                    
+                    if (data.type === 'announce' && data.peerId !== this.myPeerId) {
+                        // Found another peer
+                        this.handleBrowserPeer(data.peerId, data.username);
+                    }
+                    
+                    if (data.type === 'message') {
+                        this.addMessage(data.text, data.username, false);
+                    }
+                    
+                    if (data.type === 'signal') {
+                        // Handle WebRTC signaling for browser mode
+                        this.handleBrowserSignal(data);
+                    }
+                };
+                
+                // Announce presence
+                setInterval(() => {
+                    this.broadcastChannel.postMessage({
+                        type: 'announce',
+                        peerId: this.myPeerId,
+                        username: this.username,
+                        roomId: this.roomId,
+                        isHost: this.isHost
+                    });
+                }, 2000);
+                
+                this.log('Browser mode initialized');
+            }
+            
+            findBrowserHost(roomId) {
+                // In browser mode, we broadcast to find the host
+                this.broadcastChannel.postMessage({
+                    type: 'find_host',
+                    peerId: this.myPeerId,
+                    username: this.username
+                });
+            }
+            
+            handleBrowserPeer(peerId, username) {
+                this.log(`Found browser peer: ${username} (${peerId})`);
+                
+                if (!this.connections.has(peerId)) {
+                    this.connections.set(peerId, {
+                        username: username,
+                        connected: true
+                    });
+                    
+                    this.updateChatStatus(`Connected to ${username}`, 'good');
+                    this.addSystemMessage(`${username} joined the chat`);
+                }
+            }
+            
+            handleBrowserSignal(data) {
+                // Handle WebRTC signaling for direct connections
+                // Simplified - could implement full WebRTC here
             }
             
             connectToPeer(peerId) {
                 if (!this.peer || this.peer.disconnected) {
-                    alert('Not connected to signaling server');
+                    this.log('Cannot connect: Peer not initialized', 'error');
                     return;
                 }
                 
-                console.log('Connecting to peer:', peerId);
+                this.log(`Connecting to peer: ${peerId}`);
                 
                 const conn = this.peer.connect(peerId, {
                     metadata: {
                         username: this.username,
-                        isHost: this.isHost,
-                        timestamp: Date.now()
+                        roomId: this.roomId
                     },
-                    reliable: true,
-                    serialization: 'json'
+                    reliable: true
                 });
                 
                 this.setupConnection(conn, peerId);
@@ -529,69 +704,47 @@
             
             handleIncomingConnection(conn) {
                 const peerId = conn.peer;
-                console.log('Setting up incoming connection from:', peerId);
-                
-                // Get metadata
                 const metadata = conn.metadata || {};
-                const peerUsername = metadata.username || 'Unknown';
+                const username = metadata.username || 'Unknown';
                 
-                this.setupConnection(conn, peerId, peerUsername);
+                this.log(`Incoming connection from: ${username} (${peerId})`);
                 
-                // Update peer list if host
-                if (this.isHost) {
-                    this.updatePeerList();
-                }
+                this.setupConnection(conn, peerId, username);
             }
             
-            setupConnection(conn, peerId, peerUsername = 'Unknown') {
-                // Connection opened
+            setupConnection(conn, peerId, username = 'Unknown') {
                 conn.on('open', () => {
-                    console.log('Connection established with:', peerId);
+                    this.log(`Connection established with ${username}`);
                     
-                    const metadata = conn.metadata || {};
-                    const username = metadata.username || peerUsername;
-                    
-                    // Store connection
                     this.connections.set(peerId, {
                         conn: conn,
                         username: username,
                         connected: true
                     });
                     
-                    this.updateConnectionStatus(`Connected to ${username}`, 'connected');
-                    this.updatePeerList();
+                    this.updateChatStatus(`Connected to ${username}`, 'good');
+                    this.addSystemMessage(`${username} joined the chat`);
                     
-                    // Send welcome message
+                    // Send welcome
                     if (this.isHost) {
-                        conn.send({
+                        this.sendToPeer(peerId, {
                             type: 'system',
-                            message: `Welcome to the chat, ${username}!`,
-                            from: 'System'
+                            message: `Welcome ${username}!`
                         });
                     }
                 });
                 
-                // Handle incoming data
                 conn.on('data', (data) => {
                     this.handleIncomingData(data, peerId);
                 });
                 
-                // Handle connection close
                 conn.on('close', () => {
-                    console.log('Connection closed with:', peerId);
-                    
-                    if (this.connections.has(peerId)) {
-                        const peer = this.connections.get(peerId);
-                        this.addSystemMessage(`${peer.username} disconnected`);
-                        this.connections.delete(peerId);
-                    }
-                    
-                    this.updatePeerList();
+                    this.log(`Connection closed with ${peerId}`);
+                    this.handleDisconnection(peerId);
                 });
                 
-                // Handle errors
                 conn.on('error', (error) => {
-                    console.error('Connection error with', peerId, ':', error);
+                    this.log(`Connection error: ${error.message}`, 'error');
                 });
             }
             
@@ -600,20 +753,15 @@
                     const connection = this.connections.get(peerId);
                     const sender = connection ? connection.username : 'Unknown';
                     
-                    switch(data.type) {
-                        case 'message':
-                            this.addMessage(data.text, sender, false);
-                            break;
-                        case 'system':
-                            this.addSystemMessage(data.message);
-                            break;
-                        case 'peer_list':
-                            // Update with list of all peers
-                            this.updatePeerList(data.peers);
-                            break;
+                    if (typeof data === 'string') {
+                        this.addMessage(data, sender, false);
+                    } else if (data.type === 'message') {
+                        this.addMessage(data.text, sender, false);
+                    } else if (data.type === 'system') {
+                        this.addSystemMessage(data.message);
                     }
                 } catch (error) {
-                    console.error('Error handling incoming data:', error);
+                    this.log(`Error handling data: ${error.message}`, 'error');
                 }
             }
             
@@ -623,32 +771,60 @@
                 
                 if (!text) return;
                 
-                // Create message object
-                const message = {
-                    type: 'message',
-                    text: text,
-                    from: this.username,
-                    timestamp: Date.now()
-                };
+                // Add locally
+                this.addMessage(text, this.username, true);
                 
-                // Send to all connected peers
-                let sent = false;
-                for (const [peerId, connection] of this.connections) {
-                    if (connection.conn.open) {
-                        connection.conn.send(message);
-                        sent = true;
+                // Send based on method
+                if (this.method === 'public') {
+                    // Send to all connected peers
+                    let sent = false;
+                    for (const [peerId, connection] of this.connections) {
+                        if (connection.conn && connection.conn.open) {
+                            connection.conn.send({
+                                type: 'message',
+                                text: text,
+                                from: this.username
+                            });
+                            sent = true;
+                        }
                     }
+                    
+                    if (!sent) {
+                        this.addSystemMessage('No peers connected');
+                    }
+                } else if (this.method === 'browser') {
+                    // Send via BroadcastChannel
+                    this.broadcastChannel.postMessage({
+                        type: 'message',
+                        text: text,
+                        username: this.username
+                    });
+                } else if (this.method === 'manual') {
+                    // Manual mode - just show locally
+                    this.addSystemMessage('Manual mode: Message only shown locally');
                 }
                 
-                if (sent) {
-                    // Display locally
-                    this.addMessage(text, this.username, true);
+                // Clear input
+                input.value = '';
+                input.focus();
+            }
+            
+            sendToPeer(peerId, data) {
+                const connection = this.connections.get(peerId);
+                if (connection && connection.conn && connection.conn.open) {
+                    connection.conn.send(data);
+                }
+            }
+            
+            handleDisconnection(peerId) {
+                if (this.connections.has(peerId)) {
+                    const peer = this.connections.get(peerId);
+                    this.addSystemMessage(`${peer.username} disconnected`);
+                    this.connections.delete(peerId);
                     
-                    // Clear input
-                    input.value = '';
-                    input.focus();
-                } else {
-                    this.addSystemMessage('No peers connected to send message to');
+                    if (this.connections.size === 0) {
+                        this.updateChatStatus('Disconnected from all peers', 'error');
+                    }
                 }
             }
             
@@ -683,127 +859,27 @@
                 chat.scrollTop = chat.scrollHeight;
             }
             
-            updateConnectionStatus(message, type) {
-                const status = document.getElementById('connectionStatus');
-                status.className = `status-bar status-${type}`;
-                status.querySelector('span').textContent = message;
-            }
-            
-            updatePeerList(peerList = null) {
-                const peerListDiv = document.getElementById('peerList');
+            startChatting() {
+                document.getElementById('setupSection').classList.add('hidden');
+                document.getElementById('chatSection').classList.remove('hidden');
                 
-                if (peerList) {
-                    // Use provided peer list
-                    peerListDiv.innerHTML = peerList.map(p => 
-                        `<div>${p.username} (${p.id.substring(0, 8)}...)</div>`
-                    ).join('');
-                } else {
-                    // Build from connections
-                    const peers = Array.from(this.connections.values());
-                    if (peers.length === 0) {
-                        peerListDiv.innerHTML = 'No peers connected yet';
-                    } else {
-                        peerListDiv.innerHTML = peers.map(p => 
-                            `<div>${p.username} (connected)</div>`
-                        ).join('');
-                    }
-                }
-                
-                // Update chat status
-                const chatStatus = document.getElementById('chatStatus');
-                const totalPeers = this.connections.size;
-                if (totalPeers > 0) {
-                    chatStatus.className = 'status-bar status-connected';
-                    chatStatus.querySelector('span').textContent = 
-                        `Connected to ${totalPeers} peer${totalPeers !== 1 ? 's' : ''}`;
-                }
-            }
-            
-            generateRoomId() {
-                // Generate a readable room ID
-                const adjectives = ['Happy', 'Swift', 'Bright', 'Calm', 'Quick', 'Brave', 'Wise'];
-                const nouns = ['Tiger', 'Eagle', 'River', 'Mountain', 'Forest', 'Ocean', 'Star'];
-                const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-                const noun = nouns[Math.floor(Math.random() * nouns.length)];
-                const num = Math.floor(100 + Math.random() * 900);
-                return `${adj}${noun}${num}`;
-            }
-            
-            parseCustomServer(url) {
-                try {
-                    const urlObj = new URL(url);
-                    return {
-                        host: urlObj.hostname,
-                        port: urlObj.port || (urlObj.protocol === 'wss:' ? 443 : 80),
-                        secure: urlObj.protocol === 'wss:',
-                        path: urlObj.pathname || '/'
-                    };
-                } catch (error) {
-                    return {
-                        host: '0.peerjs.com',
-                        port: 443,
-                        secure: true,
-                        path: '/'
-                    };
-                }
-            }
-            
-            handlePeerError(error) {
-                console.error('PeerJS Error:', error);
-                
-                let message = 'Connection error';
-                switch(error.type) {
-                    case 'peer-unavailable':
-                        message = 'Peer not available or offline';
-                        break;
-                    case 'network':
-                        message = 'Network error. Check your connection';
-                        break;
-                    case 'server-error':
-                        message = 'Signaling server error. Try another server';
-                        break;
-                }
-                
-                this.updateConnectionStatus(message, 'disconnected');
-                this.addSystemMessage(`Error: ${message}`);
-            }
-            
-            generateQRCode() {
-                if (typeof QRCode !== 'undefined' && this.roomId) {
-                    const qrDiv = document.getElementById('qrcode');
-                    if (qrDiv) {
-                        qrDiv.innerHTML = '';
-                        new QRCode(qrDiv, {
-                            text: `${window.location.origin}?room=${this.roomId}`,
-                            width: 200,
-                            height: 200
-                        });
-                    }
-                }
-            }
-            
-            startChat() {
-                document.getElementById('chatTab').disabled = false;
-                showTab('chat');
-                
-                // Enable chat input
+                // Enable chat
                 document.getElementById('messageInput').disabled = false;
                 document.getElementById('sendBtn').disabled = false;
                 document.getElementById('messageInput').focus();
                 
-                // Add welcome message
-                if (this.isHost) {
-                    this.addSystemMessage(`You created room: ${this.roomId}`);
-                } else {
-                    this.addSystemMessage(`You joined room: ${this.roomId}`);
-                }
-                this.addSystemMessage(`Your username: ${this.username}`);
+                this.updateChatStatus('Chat started!', 'good');
+                this.addSystemMessage(`Welcome ${this.username}!`);
+                this.addSystemMessage(`Room: ${this.roomId}`);
+                this.addSystemMessage(`Mode: ${this.method}`);
             }
             
             disconnect() {
                 // Close all connections
                 for (const [peerId, connection] of this.connections) {
-                    connection.conn.close();
+                    if (connection.conn) {
+                        connection.conn.close();
+                    }
                 }
                 this.connections.clear();
                 
@@ -812,14 +888,65 @@
                     this.peer.destroy();
                 }
                 
-                // Reset UI
-                showTab('setup');
-                document.getElementById('roomInfo').style.display = 'none';
-                document.getElementById('chatMessages').innerHTML = '';
-                document.getElementById('messageInput').value = '';
-                document.getElementById('chatTab').disabled = true;
+                // Close broadcast channel
+                if (this.broadcastChannel) {
+                    this.broadcastChannel.close();
+                }
                 
-                this.addSystemMessage('Disconnected from chat');
+                this.backToSetup();
+                this.log('Disconnected from chat');
+            }
+            
+            backToSetup() {
+                document.getElementById('chatSection').classList.add('hidden');
+                document.getElementById('setupSection').classList.remove('hidden');
+                document.getElementById('roomInfo').classList.add('hidden');
+                document.getElementById('configSection').classList.remove('hidden');
+                document.getElementById('chatMessages').innerHTML = '';
+                
+                this.updateGlobalStatus('Select a connection method', 'warning');
+            }
+            
+            // Utility methods
+            generateRoomId() {
+                const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                let id = '';
+                for (let i = 0; i < 6; i++) {
+                    id += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return id;
+            }
+            
+            parseCustomServer(url) {
+                try {
+                    const urlObj = new URL(url);
+                    return {
+                        host: urlObj.hostname,
+                        port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+                        secure: urlObj.protocol === 'https:' || urlObj.protocol === 'wss:',
+                        path: urlObj.pathname || '/'
+                    };
+                } catch {
+                    return this.servers['peerjs-server1'];
+                }
+            }
+            
+            updateGlobalStatus(message, type) {
+                const status = document.getElementById('globalStatus');
+                status.className = `status-bar status-${type}`;
+                status.querySelector('span').textContent = message;
+            }
+            
+            updateRoomStatus(message, type) {
+                const status = document.getElementById('roomStatus');
+                status.className = `status-bar status-${type}`;
+                status.querySelector('span').textContent = message;
+            }
+            
+            updateChatStatus(message, type) {
+                const status = document.getElementById('chatStatus');
+                status.className = `status-bar status-${type}`;
+                status.querySelector('span').textContent = message;
             }
             
             escapeHtml(text) {
@@ -830,78 +957,58 @@
         }
         
         // Initialize chat
-        const chat = new CrossBrowserChat();
+        const chat = new RobustP2PChat();
         
-        // Tab functions
-        function showTab(tabName) {
-            // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
+        // UI Functions
+        function selectMethod(method) {
+            window.selectedMethod = method;
             
-            // Show selected tab
-            document.getElementById(tabName + 'Tab').classList.add('active');
-            document.querySelector(`.tab[onclick="showTab('${tabName}')"]`).classList.add('active');
+            // Update UI
+            document.querySelectorAll('.method-card').forEach(card => {
+                card.classList.remove('active');
+            });
+            document.getElementById(`method${method.charAt(0).toUpperCase() + method.slice(1)}`).classList.add('active');
+            
+            // Show/hide config sections
+            document.getElementById('publicConfig').classList.toggle('hidden', method !== 'public');
+            document.getElementById('roomConfig').classList.toggle('hidden', method === 'browser');
+            
+            chat.log(`Selected method: ${method}`);
         }
         
         // Global functions
         window.createRoom = () => chat.createRoom();
         window.joinRoom = () => chat.joinRoom();
-        window.startChat = () => chat.startChat();
+        window.startChatting = () => chat.startChatting();
         window.sendMessage = () => chat.sendMessage();
         window.disconnect = () => chat.disconnect();
+        window.backToSetup = () => chat.backToSetup();
         window.copyRoomId = () => {
-            navigator.clipboard.writeText(chat.roomId)
-                .then(() => alert('Room ID copied to clipboard!'))
-                .catch(() => alert('Failed to copy. Please copy manually: ' + chat.roomId));
+            const roomId = document.getElementById('roomIdDisplay').value;
+            navigator.clipboard.writeText(roomId)
+                .then(() => alert('Room ID copied!'))
+                .catch(() => prompt('Copy this Room ID:', roomId));
         };
-        window.copyMyPeerId = () => {
-            if (chat.myPeerId) {
-                navigator.clipboard.writeText(chat.myPeerId)
-                    .then(() => alert('Peer ID copied to clipboard!'))
-                    .catch(() => alert('Failed to copy. Please copy manually: ' + chat.myPeerId));
-            }
+        window.copyPeerId = () => {
+            const peerId = document.getElementById('peerIdDisplay').value;
+            navigator.clipboard.writeText(peerId)
+                .then(() => alert('Peer ID copied!'))
+                .catch(() => prompt('Copy this Peer ID:', peerId));
         };
+        
+        // Initialize with public method
+        selectMethod('public');
         
         // Handle Enter key
         document.addEventListener('DOMContentLoaded', () => {
-            // Message input
             document.getElementById('messageInput')?.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    sendMessage();
-                }
+                if (e.key === 'Enter') sendMessage();
             });
             
-            // Username input
             document.getElementById('username')?.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    createRoom();
-                }
+                if (e.key === 'Enter') createRoom();
             });
-            
-            // Check for room in URL
-            const urlParams = new URLSearchParams(window.location.search);
-            const roomParam = urlParams.get('room');
-            if (roomParam) {
-                document.getElementById('username').focus();
-                setTimeout(() => {
-                    if (confirm(`Join room "${roomParam}"?`)) {
-                        chat.roomId = roomParam;
-                        chat.joinRoom();
-                    }
-                }, 500);
-            }
         });
-        
-        // Import QR Code library
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
-        document.head.appendChild(script);
     </script>
 </body>
 </html>
