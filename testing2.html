@@ -1,0 +1,53 @@
+<!-- simple_chat.html -->
+<!doctype html>
+<html>
+    <body>
+        <h1>Simple Cross-Port Chat</h1>
+        <div
+            id="chat"
+            style="height: 300px; overflow: auto; border: 1px solid #ccc"
+        ></div>
+        <input id="msg" placeholder="Message" />
+        <button onclick="send()">Send</button>
+
+        <script>
+            const room = "test";
+            const messages = JSON.parse(
+                localStorage.getItem(`chat_${room}`) || "[]",
+            );
+
+            function send() {
+                const msg = document.getElementById("msg").value;
+                messages.push({ text: msg, time: new Date().toISOString() });
+                localStorage.setItem(`chat_${room}`, JSON.stringify(messages));
+                document.getElementById("msg").value = "";
+                updateChat();
+            }
+
+            function updateChat() {
+                const chat = document.getElementById("chat");
+                chat.innerHTML = messages
+                    .map(
+                        (m) =>
+                            `<div>${new Date(m.time).toLocaleTimeString()}: ${m.text}</div>`,
+                    )
+                    .join("");
+                chat.scrollTop = chat.scrollHeight;
+            }
+
+            // Poll for changes
+            setInterval(() => {
+                const current = JSON.parse(
+                    localStorage.getItem(`chat_${room}`) || "[]",
+                );
+                if (current.length !== messages.length) {
+                    messages.length = 0;
+                    messages.push(...current);
+                    updateChat();
+                }
+            }, 1000);
+
+            updateChat();
+        </script>
+    </body>
+</html>
